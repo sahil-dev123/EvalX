@@ -14,4 +14,7 @@ public interface EvaluationResultRepository extends JpaRepository<EvaluationResu
 
     @Query("SELECT er.totalScore FROM EvaluationResult er WHERE er.submission.examYear.id = :examYearId")
     List<Double> findAllScoresByExamYearId(Long examYearId);
+
+    @Query("SELECT er FROM EvaluationResult er JOIN FETCH er.submission s JOIN FETCH s.responses r JOIN FETCH r.question q WHERE er.id = :id")
+    Optional<EvaluationResult> findWithAllDetailsById(Long id);
 }

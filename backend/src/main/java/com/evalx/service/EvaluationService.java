@@ -41,12 +41,11 @@ public class EvaluationService {
 
                 Long shiftId = null;
 
-                // 1. Try Auto-Detection from Metadata
+                // 1. Try auto-detection from metadata (exam code + year + shift name)
                 if (metadata != null && metadata.containsKey("exam") && metadata.containsKey("year")) {
                         String examCode = metadata.get("exam");
                         int year = Integer.parseInt(metadata.get("year"));
                         String shiftName = metadata.get("shift");
-
                         log.info("Attempting auto-detection via metadata: Exam={}, Year={}, Shift={}", examCode, year,
                                         shiftName);
 
@@ -64,9 +63,10 @@ public class EvaluationService {
                         shiftId = questionRepository.findMostLikelyShiftIdByHashes(candidateAnswers.keySet())
                                         .orElseThrow(() -> new EvaluationException(
                                                         "Could not detect the Exam Shift from the provided response sheet."));
+                        log.info("Hash-based detection found shiftId={}", shiftId);
                 }
 
-                // 3. Fetch the matched Shift and determine the ExamYear
+                // 3. Load questions with answer keys for the matched shift
                 List<Question> questions = questionRepository.findWithAnswerKeyByShiftId(shiftId);
                 if (questions.isEmpty()) {
                         throw new EvaluationException("No questions found for the detected shift.");
@@ -74,25 +74,26 @@ public class EvaluationService {
 
                 ExamYear examYear = questions.get(0).getSection().getShift().getExamYear();
                 Long examYearId = examYear.getId();
-                log.info("Evaluation proceeding for examYearId={}", examYearId);
+                log.info("Evaluation proceeding for examYearId={}, questionCount={}", examYearId, questions.size());
 
-                // Build section map - Optimized lookup
+                // Build a lookup map: sectionId → Section to avoid repeated traversals
                 Map<Long, Section> sectionMap = questions.stream()
                                 .map(Question::getSection)
                                 .distinct()
                                 .collect(Collectors.toMap(Section::getId, s -> s));
                 log.debug(LogConstants.DATA_LOADED, sectionMap.size(), "Sections");
 
-                // Run evaluation engine
+                // Run the evaluation engine
                 EvaluationEngine.EvaluationOutcome outcome = evaluationEngine.evaluate(questions, candidateAnswers,
                                 sectionMap);
 
-                // Save submission and candidate responses
+                // Save the submission record
                 ResponseSubmission submission = ResponseSubmission.builder()
                                 .examYear(examYear)
                                 .sessionId(UUID.randomUUID().toString())
                                 .build();
 
+                // Map each question to a candidate-response record
                 List<CandidateResponse> responses = questions.stream()
                                 .map(q -> CandidateResponse.builder()
                                                 .submission(submission)
@@ -103,13 +104,15 @@ public class EvaluationService {
 
                 submission.setResponses(responses);
                 ResponseSubmission savedSubmission = submissionRepository.save(submission);
-                log.debug("Saved submissionId={}", savedSubmission.getId());
+                log.debug("Saved submission: submissionId={}", savedSubmission.getId());
 
-                // Calculate total max score
-                double maxScore = examYear.getTotalMarks() != null ? examYear.getTotalMarks()
+                // Calculate max score: prefer the stored value, fall back to question count ×
+                // default mark
+                double maxScore = examYear.getTotalMarks() != null
+                                ? examYear.getTotalMarks()
                                 : questions.size() * ExamConstants.GATE_POSITIVE_MARK;
 
-                // Save evaluation result
+                // Persist the evaluation result
                 Score totalScore = outcome.totalScore();
                 EvaluationResult result = EvaluationResult.builder()
                                 .submission(savedSubmission)
@@ -120,9 +123,9 @@ public class EvaluationService {
                                 .skipped(totalScore.getSkipped())
                                 .build();
 
-                // Save section scores
-                List<SectionScore> sectionScores = new ArrayList<>();
+                // Build section scores from the engine outcome, ordered by section index
                 List<Section> orderedSections = sectionRepository.findByExamYearIdOrderByOrderIndexAsc(examYearId);
+                List<SectionScore> sectionScores = new ArrayList<>();
                 for (Section section : orderedSections) {
                         Score secScore = outcome.sectionScores().getOrDefault(section.getId(), new Score());
                         sectionScores.add(SectionScore.builder()
@@ -137,11 +140,13 @@ public class EvaluationService {
                 }
                 result.setSectionScores(sectionScores);
                 result = resultRepository.save(result);
+                log.debug("Saved evaluation result: resultId={}, totalScore={}", result.getId(),
+                                result.getTotalScore());
 
-                // Calculate ranking analytics
+                // Compute and persist ranking analytics (percentile, z-score, estimated rank)
                 updateRankingAnalytics(result, examYearId);
 
-                // Update score distribution frequency
+                // Update bucket-based score distribution for analytics charts
                 updateScoreDistribution(examYearId, totalScore.getTotalScore());
 
                 log.info(LogConstants.END_METHOD, "evaluate");
@@ -150,7 +155,7 @@ public class EvaluationService {
 
         public EvaluationResponse getResultById(Long resultId) {
                 log.info(LogConstants.START_PROCESS, "getResultById", resultId);
-                EvaluationResult result = resultRepository.findById(resultId)
+                EvaluationResult result = resultRepository.findWithAllDetailsById(resultId)
                                 .orElseThrow(() -> new EvaluationException("Result not found with id: " + resultId));
 
                 ExamYear examYear = result.getSubmission().getExamYear();
@@ -162,6 +167,7 @@ public class EvaluationService {
         }
 
         private void updateRankingAnalytics(EvaluationResult result, Long examYearId) {
+                log.debug("Updating ranking analytics for resultId={}, examYearId={}", result.getId(), examYearId);
                 double percentile = rankingService.calculatePercentile(examYearId, result.getTotalScore());
                 double zScore = rankingService.calculateZScore(examYearId, result.getTotalScore());
                 long totalCandidates = result.getSubmission().getExamYear().getTotalCandidates() != null
@@ -173,12 +179,13 @@ public class EvaluationService {
                 result.setEstimatedRank(estimatedRank);
                 result.setZScore(zScore);
                 resultRepository.save(result);
+                log.debug("Ranking: percentile={}, zScore={}, estimatedRank={}", percentile, zScore, estimatedRank);
         }
 
         private void updateScoreDistribution(Long examYearId, double score) {
+                // Group scores into 10-point buckets (e.g. 40-50, 50-60)
                 int bucket = ((int) Math.floor(score / 10)) * 10;
                 String bucketKey = bucket + "-" + (bucket + 10);
-
                 log.debug("Updating score distribution bucket: {} for examYearId={}", bucketKey, examYearId);
 
                 ScoreDistribution found = scoreDistributionRepository
@@ -195,26 +202,30 @@ public class EvaluationService {
 
         private EvaluationResponse buildResponse(EvaluationResult result, ExamYear examYear,
                         List<Section> sections, EvaluationEngine.EvaluationOutcome outcome) {
-                List<EvaluationResponse.SectionResult> sectionResults = new ArrayList<>();
 
-                // Use outcome for fresh evaluations, otherwise map from
-                // result.getSectionScores()
+                List<EvaluationResponse.SectionResult> sectionResults;
+
+                // Use fresh outcome scores for new evaluations; map from DB for historical
+                // look-ups
                 if (outcome != null) {
-                        for (Section section : sections) {
-                                Score secScore = outcome.sectionScores().getOrDefault(section.getId(), new Score());
-                                sectionResults.add(mapToSectionResult(section, secScore));
-                        }
+                        sectionResults = sections.stream()
+                                        .map(section -> {
+                                                Score secScore = outcome.sectionScores().getOrDefault(section.getId(),
+                                                                new Score());
+                                                return mapToSectionResult(section, secScore);
+                                        })
+                                        .collect(Collectors.toList());
                 } else {
                         sectionResults = result.getSectionScores().stream()
                                         .map(ss -> mapToSectionResult(ss.getSection(), ss))
                                         .collect(Collectors.toList());
                 }
 
-                // Score distribution for chart
+                // Score distribution for histogram chart
                 List<ScoreDistribution> dists = scoreDistributionRepository
                                 .findByExamYearIdOrderByScoreBucketAsc(examYear.getId());
-                String candidateBucket = ((int) Math.floor(result.getTotalScore() / 10)) * 10 + "-" +
-                                (((int) Math.floor(result.getTotalScore() / 10)) * 10 + 10);
+                int candidateBucketBase = ((int) Math.floor(result.getTotalScore() / 10)) * 10;
+                String candidateBucket = candidateBucketBase + "-" + (candidateBucketBase + 10);
 
                 List<EvaluationResponse.ScoreBucket> scoreBuckets = dists.stream()
                                 .map(d -> EvaluationResponse.ScoreBucket.builder()
@@ -224,7 +235,7 @@ public class EvaluationService {
                                                 .build())
                                 .collect(Collectors.toList());
 
-                // Analytics Data
+                // Aggregate analytics (mean, stdDev, cutoff) for the exam year
                 List<Double> allScores = resultRepository.findAllScoresByExamYearId(examYear.getId());
                 double mean = rankingService.calculateMean(allScores);
                 double stdDev = rankingService.calculateStdDev(allScores, mean);
@@ -242,6 +253,7 @@ public class EvaluationService {
                                 .difficultyAnalysis(difficultyAnalysis)
                                 .build();
 
+                // Resolve shift name from the first response, with a safe fallback
                 Shift shift = result.getSubmission().getResponses().isEmpty() ? null
                                 : result.getSubmission().getResponses().get(0).getQuestion().getSection().getShift();
 
@@ -269,11 +281,14 @@ public class EvaluationService {
                                 .build();
         }
 
+        /** Map a fresh Score (from engine) to a SectionResult DTO. */
         private EvaluationResponse.SectionResult mapToSectionResult(Section section, Score score) {
                 int totalQ = section.getTotalQuestions() != null ? section.getTotalQuestions() : 0;
                 int attempted = score.getCorrect() + score.getIncorrect();
                 double accuracy = attempted > 0 ? (score.getCorrect() * 100.0 / attempted) : 0;
-                double maxScore = totalQ * ExamConstants.GATE_POSITIVE_MARK;
+                // Use the engine to calculate max score so marking policy is respected per
+                // section
+                double maxScore = evaluationEngine.calculateMaxScoreForSection(section);
 
                 return EvaluationResponse.SectionResult.builder()
                                 .sectionId(section.getId())
@@ -288,6 +303,7 @@ public class EvaluationService {
                                 .build();
         }
 
+        /** Map a persisted SectionScore (from DB) to a SectionResult DTO. */
         private EvaluationResponse.SectionResult mapToSectionResult(Section section, SectionScore ss) {
                 int attempted = ss.getCorrect() + ss.getIncorrect();
                 double accuracy = attempted > 0 ? (ss.getCorrect() * 100.0 / attempted) : 0;

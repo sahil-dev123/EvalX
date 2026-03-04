@@ -1,5 +1,6 @@
 package com.evalx.controller;
 
+import com.evalx.constants.ApiConstants;
 import com.evalx.constants.LogConstants;
 import com.evalx.dto.request.CreateMarkingPolicyRequest;
 import com.evalx.dto.response.ApiResponse;
@@ -18,7 +19,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/marking-policies")
+@RequestMapping(ApiConstants.MARKING_POLICIES_API)
 @RequiredArgsConstructor
 public class MarkingPolicyController {
 
@@ -29,6 +30,8 @@ public class MarkingPolicyController {
             @Valid @RequestBody CreateMarkingPolicyRequest req) {
         log.info(LogConstants.START_METHOD, "createPolicy");
         MarkingPolicy p = markingPolicyService.createPolicy(req);
+        log.info("Created marking policy: id={}, correct={}, negative={}", p.getId(), p.getCorrectMarks(),
+                p.getNegativeMarks());
         log.info(LogConstants.END_METHOD, "createPolicy");
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Marking policy created",
                 Map.of("id", p.getId(), "correctMarks", p.getCorrectMarks(),

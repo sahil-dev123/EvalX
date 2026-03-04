@@ -1,5 +1,6 @@
 package com.evalx.config;
 
+import com.evalx.constants.ExamConstants;
 import com.evalx.dto.request.*;
 import com.evalx.service.*;
 import com.evalx.util.HashUtil;
@@ -23,6 +24,7 @@ public class DataSeeder implements CommandLineRunner {
 
         @Override
         public void run(String... args) {
+                // Skip seeding if data already exists
                 if (!examManagementService.getAllExams().isEmpty()) {
                         log.info("Data already exists, skipping seed.");
                         return;
@@ -40,7 +42,7 @@ public class DataSeeder implements CommandLineRunner {
                                 .description("Staff Selection Commission - Combined Graduate Level Examination")
                                 .build());
 
-                // Create Stages
+                // Create Stages: Pre (Tier 1) and Mains (Tier 2)
                 var pre = examManagementService.createStage(CreateExamStageRequest.builder()
                                 .examId(exam.getId())
                                 .name("Pre (Tier 1)")
@@ -55,22 +57,22 @@ public class DataSeeder implements CommandLineRunner {
                                 .orderIndex(2)
                                 .build());
 
-                // Create Year for Pre
+                // Create Year for Pre using the configured default year constant
                 var preYear = examManagementService.createExamYear(CreateExamYearRequest.builder()
                                 .examStageId(pre.getId())
-                                .year(2026)
+                                .year(ExamConstants.DEFAULT_YEAR)
                                 .totalCandidates(2500000L)
                                 .totalMarks(200.0)
                                 .timeMinutes(60)
                                 .build());
 
-                // Create Shift for Pre
+                // Create Shift for Pre using the default shift name constant
                 var preShift = examManagementService.createShift(CreateShiftRequest.builder()
                                 .examYearId(preYear.getId())
-                                .name("Shift 1")
+                                .name(ExamConstants.DEFAULT_SHIFT)
                                 .build());
 
-                // Create Sections for Pre
+                // Create Sections for Pre (25 questions each)
                 String[] sectionNames = {
                                 "General Intelligence and Reasoning",
                                 "General Awareness",
@@ -78,7 +80,7 @@ public class DataSeeder implements CommandLineRunner {
                                 "English Comprehension"
                 };
 
-                Long[] sectionIds = new Long[4];
+                Long[] sectionIds = new Long[sectionNames.length];
                 for (int i = 0; i < sectionNames.length; i++) {
                         var section = sectionService.createSection(CreateSectionRequest.builder()
                                         .shiftId(preShift.getId())
@@ -89,17 +91,18 @@ public class DataSeeder implements CommandLineRunner {
                         sectionIds[i] = section.getId();
                 }
 
-                // Create Marking Policy (exam-year level: +2, -0.5, 0)
+                // Create exam-year-level marking policy: +2 correct, -0.5 negative, 0
+                // unattempted
                 markingPolicyService.createPolicy(CreateMarkingPolicyRequest.builder()
                                 .examYearId(preYear.getId())
                                 .correctMarks(2.0)
                                 .negativeMarks(0.5)
-                                .unattemptedMarks(0.0)
+                                .unattemptedMarks(ExamConstants.DEFAULT_NEGATIVE_MARK)
                                 .build());
 
-                // Create Questions with Answer Keys (100 questions, 25 per section)
+                // Create 100 mock questions (25 per section) with cycling answers A→B→C→D
                 String[] answers = { "A", "B", "C", "D" };
-                for (int s = 0; s < 4; s++) {
+                for (int s = 0; s < sectionNames.length; s++) {
                         List<BulkQuestionRequest.QuestionItem> items = new ArrayList<>();
                         for (int q = 1; q <= 25; q++) {
                                 long qNum = (long) (s * 25 + q);
@@ -107,7 +110,7 @@ public class DataSeeder implements CommandLineRunner {
                                                 .questionNumber(qNum)
                                                 .questionHash(HashUtil.generateHash(String.valueOf(qNum)))
                                                 .questionText("Mock Question Text for Q" + qNum)
-                                                .questionType("MCQ")
+                                                .questionType(ExamConstants.QUESTION_TYPE_MCQ)
                                                 .correctAnswer(answers[(s * 25 + q - 1) % 4])
                                                 .build());
                         }
@@ -117,15 +120,16 @@ public class DataSeeder implements CommandLineRunner {
                                         .build());
                 }
 
-                // Create Year for Mains (empty — admin can configure)
+                // Create Mains year (empty — admin configures questions separately)
                 examManagementService.createExamYear(CreateExamYearRequest.builder()
                                 .examStageId(mains.getId())
-                                .year(2026)
+                                .year(ExamConstants.DEFAULT_YEAR)
                                 .totalCandidates(500000L)
                                 .totalMarks(500.0)
                                 .timeMinutes(120)
                                 .build());
 
-                log.info("SSC CGL Pre (Tier 1) 2026 seeded with {} questions", 100);
+                log.info("SSC CGL Pre ({}) {} seeded with {} questions",
+                                ExamConstants.DEFAULT_STAGE, ExamConstants.DEFAULT_YEAR, 100);
         }
 }

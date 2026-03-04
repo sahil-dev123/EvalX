@@ -39,6 +39,8 @@ public class QuestionPaperParserService {
     private final ShiftRepository shiftRepository;
     private final MarkingPolicyRepository markingPolicyRepository;
 
+    private static final String FOOTER_REGEX = "(?i)Organizing Institute:.*Page \\d+ of \\d+";
+
     /**
      * Universal Ingest: Extracts metadata from the master PDF and auto-creates the
      * shift hierarchy.
@@ -46,6 +48,9 @@ public class QuestionPaperParserService {
     @Transactional
     public void universalIngest(MultipartFile questionPaper, MultipartFile answerKey) throws IOException {
         log.info(LogConstants.START_METHOD, "universalIngest");
+        log.info("Processing universal ingest for questionPaper={}, answerKey={}",
+                questionPaper.getOriginalFilename(), answerKey.getOriginalFilename());
+
         String qpText;
         try (PDDocument doc = Loader.loadPDF(questionPaper.getBytes())) {
             qpText = new PDFTextStripper().getText(doc);
@@ -61,13 +66,13 @@ public class QuestionPaperParserService {
         if (metaMatcher.find()) {
             examCode = metaMatcher.group(1).toUpperCase();
             year = Integer.parseInt(metaMatcher.group(2));
-            log.debug("Found metadata: examCode={}, year={}", examCode, year);
+            log.debug("Extracted metadata: examCode={}, year={}", examCode, year);
         }
 
         Matcher shiftMatcher = Pattern.compile("(S1|S2|Shift \\d|Morning|Afternoon)").matcher(qpText);
         if (shiftMatcher.find()) {
             shiftName = "Shift " + shiftMatcher.group(1);
-            log.debug("Found shift detail: {}", shiftName);
+            log.debug("Extracted shift detail: {}", shiftName);
         }
 
         // 2. Find or Create Hierarchy
@@ -86,7 +91,7 @@ public class QuestionPaperParserService {
 
         ExamStage stage = examStageRepository.findByExamIdAndName(exam.getId(), ExamConstants.DEFAULT_STAGE)
                 .orElseGet(() -> {
-                    log.info("Creating new exam stage: {}", ExamConstants.DEFAULT_STAGE);
+                    log.info("Creating new exam stage: {} for examId={}", ExamConstants.DEFAULT_STAGE, exam.getId());
                     return examStageRepository.save(ExamStage.builder()
                             .exam(exam)
                             .name(ExamConstants.DEFAULT_STAGE)
@@ -97,7 +102,7 @@ public class QuestionPaperParserService {
         final int finalYear = year;
         ExamYear examYear = examYearRepository.findByExamStageIdAndYear(stage.getId(), year)
                 .orElseGet(() -> {
-                    log.info("Creating new exam year: {}", finalYear);
+                    log.info("Creating new exam year: {} for stageId={}", finalYear, stage.getId());
                     return examYearRepository.save(ExamYear.builder()
                             .examStage(stage)
                             .year(finalYear)
@@ -111,7 +116,8 @@ public class QuestionPaperParserService {
             double negative = examCode.equalsIgnoreCase(ExamConstants.GATE) ? ExamConstants.GATE_NEGATIVE_MARK
                     : ExamConstants.DEFAULT_NEGATIVE_MARK;
 
-            log.info("Creating default marking policy: correct={}, negative={}", positive, negative);
+            log.info("Creating default marking policy for examYearId={}: correct={}, negative={}",
+                    examYear.getId(), positive, negative);
             markingPolicyRepository.save(MarkingPolicy.builder()
                     .examYear(examYear)
                     .correctMarks(positive)
@@ -122,7 +128,7 @@ public class QuestionPaperParserService {
         final String finalShiftName = shiftName;
         Shift shift = shiftRepository.findByExamYearIdAndName(examYear.getId(), shiftName)
                 .orElseGet(() -> {
-                    log.info("Creating new shift: {}", finalShiftName);
+                    log.info("Creating new shift: {} for examYearId={}", finalShiftName, examYear.getId());
                     return shiftRepository.save(Shift.builder()
                             .examYear(examYear)
                             .name(finalShiftName)
@@ -145,11 +151,11 @@ public class QuestionPaperParserService {
 
         // 1. Parse Answer Key first to get the mapping of Q.No -> Type, Section, Key
         Map<Integer, AnswerKeyData> answerKeyMap = parseAnswerKey(answerKey);
-        log.info("Parsed {} answer keys from PDF", answerKeyMap.size());
+        log.info("Parsed {} answer key entries from PDF for shiftId={}", answerKeyMap.size(), shiftId);
 
         // 2. Parse Question Paper to get the mapping of Q.No -> Text
         Map<Integer, String> questionTextMap = parseQuestionPaper(questionPaper);
-        log.info("Parsed {} question texts from PDF", questionTextMap.size());
+        log.info("Parsed {} question text entries from PDF for shiftId={}", questionTextMap.size(), shiftId);
 
         // 3. Create Sections if they don't exist, and create Questions
         Map<String, Section> sectionCache = new HashMap<>();
@@ -162,13 +168,11 @@ public class QuestionPaperParserService {
 
             // Get or create Section - Optimized with cache
             Section section = sectionCache.computeIfAbsent(akData.sectionName, name -> {
-                // Let's use simple repo query for section lookup
                 return shift.getSections().stream()
                         .filter(s -> s.getName().equalsIgnoreCase(name))
                         .findFirst()
                         .orElseGet(() -> {
                             log.info("Creating new section: {} for shiftId={}", name, shiftId);
-                            // Using direct creation for internal seed
                             Section s = Section.builder()
                                     .shift(shift)
                                     .name(name)
@@ -179,7 +183,7 @@ public class QuestionPaperParserService {
                         });
             });
 
-            log.debug("Processing Q.{} with hash: {}", qNum, qHash);
+            log.debug("Processing Q.{} for sectionId={} with hash={}", qNum, section.getId(), qHash);
 
             // Create Question
             Question question = Question.builder()
@@ -204,7 +208,7 @@ public class QuestionPaperParserService {
     }
 
     private Map<Integer, AnswerKeyData> parseAnswerKey(MultipartFile file) throws IOException {
-        log.info("Starting Answer Key parsing from PDF");
+        log.debug("Starting Answer Key parsing from PDF: {}", file.getOriginalFilename());
         Map<Integer, AnswerKeyData> map = new LinkedHashMap<>();
         try (PDDocument document = Loader.loadPDF(file.getBytes())) {
             PDFTextStripper stripper = new PDFTextStripper();
@@ -227,7 +231,7 @@ public class QuestionPaperParserService {
     }
 
     private Map<Integer, String> parseQuestionPaper(MultipartFile file) throws IOException {
-        log.info("Starting Question Paper parsing from PDF");
+        log.debug("Starting Question Paper parsing from PDF: {}", file.getOriginalFilename());
         Map<Integer, String> map = new LinkedHashMap<>();
         try (PDDocument document = Loader.loadPDF(file.getBytes())) {
             PDFTextStripper stripper = new PDFTextStripper();
@@ -241,7 +245,7 @@ public class QuestionPaperParserService {
                 int qNum = Integer.parseInt(m.group(1));
                 String content = m.group(2).trim();
                 // Clean up "Organizing Institute..." footers if present in the chunk
-                content = content.replaceAll("(?i)Organizing Institute:.*Page \\d+ of \\d+", "").trim();
+                content = content.replaceAll(FOOTER_REGEX, "").trim();
                 map.put(qNum, content);
             }
         }

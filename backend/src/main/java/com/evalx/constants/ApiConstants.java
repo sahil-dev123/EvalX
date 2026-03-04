@@ -10,6 +10,9 @@ public final class ApiConstants {
     public static final String EXAM_STAGES_API = BASE_API + "/exam-stages";
     public static final String EXAM_YEARS_API = BASE_API + "/exam-years";
     public static final String SHIFTS_API = BASE_API + "/shifts";
+    public static final String SECTIONS_API = BASE_API + "/sections";
+    public static final String QUESTIONS_API = BASE_API + "/questions";
+    public static final String MARKING_POLICIES_API = BASE_API + "/marking-policies";
     public static final String ADMIN_API = BASE_API + "/admin";
     public static final String AUTH_API = BASE_API + "/auth";
 

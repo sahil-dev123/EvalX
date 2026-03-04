@@ -1,5 +1,6 @@
 package com.evalx.controller;
 
+import com.evalx.constants.ApiConstants;
 import com.evalx.constants.LogConstants;
 import com.evalx.dto.request.CreateSectionRequest;
 import com.evalx.dto.response.ApiResponse;
@@ -18,7 +19,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/sections")
+@RequestMapping(ApiConstants.SECTIONS_API)
 @RequiredArgsConstructor
 public class SectionController {
 
@@ -29,6 +30,7 @@ public class SectionController {
             @Valid @RequestBody CreateSectionRequest req) {
         log.info(LogConstants.START_METHOD, "createSection");
         Section s = sectionService.createSection(req);
+        log.info("Created section: id={}, name={}", s.getId(), s.getName());
         log.info(LogConstants.END_METHOD, "createSection");
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Section created",
                 Map.of("id", s.getId(), "name", s.getName(), "totalQuestions",

@@ -34,15 +34,17 @@ public class ResponseParserService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
-     * Parse a response file (CSV or JSON) and return a map of questionNumber →
-     * answer.
+     * Parse a response file (PDF, CSV, or JSON) and return structured ResponseData.
      */
     public ResponseData parseResponseFile(MultipartFile file) {
         log.info(LogConstants.START_METHOD, "parseResponseFile");
         String filename = file.getOriginalFilename();
         if (filename == null) {
+            log.error("File upload failed: filename is null");
             throw new InvalidFileException("File name is required");
         }
+
+        log.info("Starting response file parsing: fileName={}, size={} bytes", filename, file.getSize());
 
         String ext = filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
 
@@ -50,9 +52,13 @@ public class ResponseParserService {
             case FileConstants.EXT_PDF -> parsePdf(file);
             case FileConstants.EXT_CSV -> new ResponseData(parseCsv(file), null);
             case FileConstants.EXT_JSON -> new ResponseData(parseJson(file), null);
-            default -> throw new InvalidFileException("Unsupported file format: " + ext);
+            default -> {
+                log.error("Unsupported file extension: {}", ext);
+                throw new InvalidFileException("Unsupported file format: " + ext);
+            }
         };
 
+        log.info("Successfully parsed {} answers from {}", result.getAnswers().size(), filename);
         log.info(LogConstants.END_METHOD, "parseResponseFile");
         return result;
     }
@@ -65,7 +71,7 @@ public class ResponseParserService {
     }
 
     private ResponseData parsePdf(MultipartFile file) {
-        log.info("Starting PDF response parsing");
+        log.debug("Entering parsePdf for {}", file.getOriginalFilename());
         Map<String, String> answers = new LinkedHashMap<>();
         Map<String, String> metadata = new HashMap<>();
         try (PDDocument document = Loader.loadPDF(file.getBytes())) {
@@ -78,16 +84,19 @@ public class ResponseParserService {
                 metadata.put("exam", metaMatcher.group(1));
                 metadata.put("year", metaMatcher.group(2));
                 metadata.put("raw_shift", metaMatcher.group(3).trim());
-                log.debug("Extracted metadata from PDF: exam={}, year={}", metaMatcher.group(1), metaMatcher.group(2));
+                log.debug("Metadata auto-detected from PDF: exam={}, year={}", metadata.get("exam"),
+                        metadata.get("year"));
             }
 
             Matcher shiftMatcher = Pattern.compile("(S1|S2|Shift \\d|Morning|Afternoon)").matcher(text);
             if (shiftMatcher.find()) {
                 metadata.put("shift", shiftMatcher.group(1));
-                log.debug("Extracted shift from PDF: {}", shiftMatcher.group(1));
+                log.debug("Shift auto-detected from PDF: {}", metadata.get("shift"));
             }
 
             String[] blocks = text.split("Q\\.");
+            log.debug("Found {} question blocks in PDF", blocks.length - 1);
+
             for (int i = 1; i < blocks.length; i++) {
                 String req = blocks[i];
                 try {
@@ -97,6 +106,7 @@ public class ResponseParserService {
                     String qText = "";
                     if (firstNewline != -1 && typeMarker != -1 && typeMarker > firstNewline) {
                         qText = req.substring(firstNewline, typeMarker).trim();
+                        // Clean up footers
                         qText = qText.replaceAll("(?i)Organizing Institute:.*Page \\d+ of \\d+", "").trim();
                     }
 
@@ -108,28 +118,33 @@ public class ResponseParserService {
                     Matcher m2 = Pattern.compile("Given Answer : (.*)").matcher(req);
 
                     if (m1.find()) {
-                        answers.put(qHash, m1.group(1).trim());
+                        String ans = m1.group(1).trim();
+                        answers.put(qHash, ans);
+                        log.debug("Parsed MCQ answer: hash={}, value={}", qHash, ans);
                     } else if (m2.find()) {
-                        answers.put(qHash, m2.group(1).trim());
+                        String ans = m2.group(1).trim();
+                        answers.put(qHash, ans);
+                        log.debug("Parsed NAT/MSQ answer: hash={}, value={}", qHash, ans);
                     }
                 } catch (Exception e) {
-                    log.debug("Block parsing warning: {}", e.getMessage());
+                    log.warn("Error parsing question block {} in PDF: {}", i, e.getMessage());
                 }
             }
 
         } catch (IOException e) {
+            log.error("IO Error while parsing PDF response", e);
             throw new InvalidFileException("Failed to read PDF: " + e.getMessage());
         }
 
         if (answers.isEmpty()) {
+            log.warn("PDF parsing completed but 0 answers were extracted");
             throw new InvalidFileException("Could not extract any completed answers from the PDF.");
         }
-        log.info("Successfully parsed {} answers from PDF", answers.size());
         return new ResponseData(answers, metadata);
     }
 
     private Map<String, String> parseCsv(MultipartFile file) {
-        log.info("Starting CSV response parsing");
+        log.debug("Entering parseCsv for {}", file.getOriginalFilename());
         Map<String, String> answers = new LinkedHashMap<>();
         try (CSVReader reader = new CSVReader(new InputStreamReader(file.getInputStream()))) {
             List<String[]> rows = reader.readAll();
@@ -150,12 +165,14 @@ public class ResponseParserService {
                     String answer = row[1].trim();
                     if (!answer.isEmpty()) {
                         answers.put(qHash, answer);
+                        log.debug("CSV entry: hash={}, answer={}", qHash, answer);
                     }
                 } catch (Exception e) {
                     log.warn("Skipping invalid CSV row: {}", Arrays.toString(row));
                 }
             }
         } catch (IOException | CsvException e) {
+            log.error("Failed to parse CSV response", e);
             throw new InvalidFileException("Failed to parse CSV: " + e.getMessage());
         }
 
@@ -173,7 +190,7 @@ public class ResponseParserService {
     }
 
     private Map<String, String> parseJson(MultipartFile file) {
-        log.info("Starting JSON response parsing");
+        log.debug("Entering parseJson for {}", file.getOriginalFilename());
         Map<String, String> answers = new LinkedHashMap<>();
         try {
             List<Map<String, Object>> items = objectMapper.readValue(file.getInputStream(), new TypeReference<>() {
@@ -185,10 +202,13 @@ public class ResponseParserService {
 
                 if (qId != null && ans != null) {
                     String qHash = HashUtil.generateHash(qId.toString());
-                    answers.put(qHash, ans.toString().trim());
+                    String answerStr = ans.toString().trim();
+                    answers.put(qHash, answerStr);
+                    log.debug("JSON entry: hash={}, answer={}", qHash, answerStr);
                 }
             }
         } catch (IOException e) {
+            log.error("Failed to parse JSON response", e);
             throw new InvalidFileException("Failed to parse JSON: " + e.getMessage());
         }
 
