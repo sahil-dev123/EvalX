@@ -3,8 +3,8 @@ package com.evalx.controller;
 import com.evalx.dto.request.CreateShiftRequest;
 import com.evalx.dto.response.ApiResponse;
 import com.evalx.entity.Shift;
+import com.evalx.service.ExamManagementService;
 import com.evalx.service.QuestionPaperParserService;
-import com.evalx.service.ShiftService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -21,19 +21,19 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ShiftController {
 
-    private final ShiftService shiftService;
+    private final ExamManagementService examManagementService;
     private final QuestionPaperParserService questionPaperParserService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<Map<String, Object>>> createShift(@Valid @RequestBody CreateShiftRequest req) {
-        Shift s = shiftService.createShift(req);
+        Shift s = examManagementService.createShift(req);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Shift created",
                 Map.of("id", s.getId(), "name", s.getName())));
     }
 
     @GetMapping("/by-exam-year/{examYearId}")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getShifts(@PathVariable Long examYearId) {
-        List<Map<String, Object>> shifts = shiftService.getShiftsByExamYearId(examYearId).stream()
+        List<Map<String, Object>> shifts = examManagementService.getShiftsByExamYearId(examYearId).stream()
                 .map(s -> Map.<String, Object>of(
                         "id", s.getId(),
                         "name", s.getName(),

@@ -1,5 +1,6 @@
 package com.evalx.service;
 
+import com.evalx.constants.LogConstants;
 import com.evalx.dto.request.BulkQuestionRequest;
 import com.evalx.dto.request.CreateQuestionRequest;
 import com.evalx.entity.*;
@@ -7,12 +8,14 @@ import com.evalx.exception.ResourceNotFoundException;
 import com.evalx.repository.AnswerKeyRepository;
 import com.evalx.repository.QuestionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class QuestionService {
@@ -23,6 +26,7 @@ public class QuestionService {
 
     @Transactional
     public Question createQuestion(CreateQuestionRequest request) {
+        log.info(LogConstants.START_METHOD, "createQuestion");
         Section section = sectionService.findSectionById(request.getSectionId());
         Question question = Question.builder()
                 .section(section)
@@ -39,19 +43,23 @@ public class QuestionService {
             answerKeyRepository.save(ak);
             question.setAnswerKey(ak);
         }
+        log.info(LogConstants.END_METHOD, "createQuestion");
         return question;
     }
 
     @Transactional
     public List<Question> bulkCreateQuestions(BulkQuestionRequest request) {
+        log.info(LogConstants.START_METHOD, "bulkCreateQuestions");
         Section section = sectionService.findSectionById(request.getSectionId());
         List<Question> created = new ArrayList<>();
 
         for (BulkQuestionRequest.QuestionItem item : request.getQuestions()) {
             QuestionType type = QuestionType.MCQ;
             if (item.getQuestionType() != null) {
-                try { type = QuestionType.valueOf(item.getQuestionType().toUpperCase()); }
-                catch (Exception ignored) {}
+                try {
+                    type = QuestionType.valueOf(item.getQuestionType().toUpperCase());
+                } catch (Exception ignored) {
+                }
             }
 
             Question question = Question.builder()
@@ -73,11 +81,16 @@ public class QuestionService {
             }
             created.add(question);
         }
+        log.info("Bulk created {} questions", created.size());
+        log.info(LogConstants.END_METHOD, "bulkCreateQuestions");
         return created;
     }
 
     public List<Question> getQuestionsByExamYearId(Long examYearId) {
-        return questionRepository.findWithAnswerKeyByExamYearId(examYearId);
+        log.info(LogConstants.START_PROCESS, "getQuestionsByExamYearId", examYearId);
+        List<Question> questions = questionRepository.findWithAnswerKeyByExamYearId(examYearId);
+        log.info(LogConstants.DATA_LOADED, questions.size(), "Question");
+        return questions;
     }
 
     public Question findQuestionById(Long id) {

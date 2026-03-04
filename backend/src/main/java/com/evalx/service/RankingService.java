@@ -1,11 +1,14 @@
 package com.evalx.service;
 
+import com.evalx.constants.LogConstants;
 import com.evalx.repository.EvaluationResultRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RankingService {
@@ -18,12 +21,14 @@ public class RankingService {
      * percentile = Φ(Z) using approximation
      */
     public double calculatePercentile(Long examYearId, double candidateScore) {
+        log.info(LogConstants.START_PROCESS, "calculatePercentile", examYearId);
         List<Double> allScores = evaluationResultRepository.findAllScoresByExamYearId(examYearId);
         if (allScores.isEmpty()) {
-            return 50.0; // Default when no data
+            log.debug("No scores found for examYearId={}, returning default 50.0", examYearId);
+            return 50.0;
         }
 
-        double mean = allScores.stream().mapToDouble(d -> d).average().orElse(0);
+        double mean = calculateMean(allScores);
         double stdDev = calculateStdDev(allScores, mean);
 
         if (stdDev == 0) {
@@ -31,7 +36,9 @@ public class RankingService {
         }
 
         double zScore = (candidateScore - mean) / stdDev;
-        return zScoreToPercentile(zScore);
+        double percentile = zScoreToPercentile(zScore);
+        log.debug("Calculated percentile: {} for score: {}", percentile, candidateScore);
+        return percentile;
     }
 
     /**
@@ -39,18 +46,21 @@ public class RankingService {
      * Rank = (1 − percentile/100) × totalCandidates
      */
     public long estimateRank(double percentile, long totalCandidates) {
-        if (totalCandidates <= 0) return 0;
+        if (totalCandidates <= 0)
+            return 0;
         long rank = Math.round((1 - percentile / 100.0) * totalCandidates);
         return Math.max(1, rank);
     }
 
     public double calculateZScore(Long examYearId, double candidateScore) {
         List<Double> allScores = evaluationResultRepository.findAllScoresByExamYearId(examYearId);
-        if (allScores.isEmpty()) return 0;
+        if (allScores.isEmpty())
+            return 0;
 
-        double mean = allScores.stream().mapToDouble(d -> d).average().orElse(0);
+        double mean = calculateMean(allScores);
         double stdDev = calculateStdDev(allScores, mean);
-        if (stdDev == 0) return 0;
+        if (stdDev == 0)
+            return 0;
 
         return (candidateScore - mean) / stdDev;
     }
@@ -63,7 +73,8 @@ public class RankingService {
     }
 
     public double calculateStdDev(List<Double> scores, double mean) {
-        if (scores.size() < 2) return 0;
+        if (scores.size() < 2)
+            return 0;
         double variance = scores.stream()
                 .mapToDouble(s -> Math.pow(s - mean, 2))
                 .sum() / scores.size();
@@ -74,8 +85,10 @@ public class RankingService {
      * Approximate Φ(z) using Abramowitz & Stegun formula.
      */
     private double zScoreToPercentile(double z) {
-        if (z < -6) return 0.01;
-        if (z > 6) return 99.99;
+        if (z < -6)
+            return 0.01;
+        if (z > 6)
+            return 99.99;
 
         double sign = z >= 0 ? 1 : -1;
         z = Math.abs(z);

@@ -6,4 +6,7 @@ import java.util.List;
 
 public interface ScoreDistributionRepository extends JpaRepository<ScoreDistribution, Long> {
     List<ScoreDistribution> findByExamYearIdOrderByScoreBucketAsc(Long examYearId);
+
+    java.util.Optional<com.evalx.entity.ScoreDistribution> findByExamYearIdAndScoreBucket(Long examYearId,
+            String scoreBucket);
 }

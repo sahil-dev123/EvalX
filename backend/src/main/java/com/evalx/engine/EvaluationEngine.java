@@ -1,5 +1,6 @@
 package com.evalx.engine;
 
+import com.evalx.constants.LogConstants;
 import com.evalx.engine.evaluator.QuestionTypeEvaluator;
 import com.evalx.entity.*;
 import lombok.extern.slf4j.Slf4j;
@@ -28,10 +29,13 @@ public class EvaluationEngine {
      * Returns a map of sectionId → Score and a total Score.
      */
     public EvaluationOutcome evaluate(List<Question> questions,
-                                       Map<String, String> candidateAnswers,
-                                       Map<Long, Section> sectionMap) {
+            Map<String, String> candidateAnswers,
+            Map<Long, Section> sectionMap) {
+        log.info(LogConstants.START_METHOD, "evaluate");
         Score totalScore = new Score();
         Map<Long, Score> sectionScores = new HashMap<>();
+
+        log.debug("Evaluating {} questions", questions.size());
 
         for (Question question : questions) {
             Section section = question.getSection();
@@ -45,33 +49,48 @@ public class EvaluationEngine {
             AnswerKey answerKey = question.getAnswerKey();
 
             if (answerKey == null) {
-                log.warn("No answer key for question {}", question.getQuestionNumber());
+                log.warn("No answer key found for questionId={}", question.getId());
                 continue;
             }
 
-            if (candidateAnswer == null || candidateAnswer.isBlank()) {
-                // Unattempted
-                sectionScore.addSkipped(policy.getUnattemptedMarks());
-                totalScore.addSkipped(policy.getUnattemptedMarks());
-            } else {
-                QuestionTypeEvaluator evaluator = evaluatorRegistry.get(question.getQuestionType());
-                if (evaluator == null) {
-                    evaluator = evaluatorRegistry.get(QuestionType.MCQ); // Default fallback
-                }
-
-                boolean isCorrect = evaluator.evaluate(candidateAnswer, answerKey.getCorrectAnswer());
-                if (isCorrect) {
-                    sectionScore.addCorrect(policy.getCorrectMarks());
-                    totalScore.addCorrect(policy.getCorrectMarks());
-                } else {
-                    sectionScore.addIncorrect(policy.getNegativeMarks());
-                    totalScore.addIncorrect(policy.getNegativeMarks());
-                }
-            }
+            // Using centralized evaluation logic
+            evaluateAnswer(question, candidateAnswer, answerKey, policy, sectionScore, totalScore);
         }
 
+        log.info(LogConstants.END_METHOD, "evaluate");
         return new EvaluationOutcome(totalScore, sectionScores);
     }
 
-    public record EvaluationOutcome(Score totalScore, Map<Long, Score> sectionScores) {}
+    private void evaluateAnswer(Question question, String candidateAnswer, AnswerKey answerKey,
+            MarkingPolicy policy, Score sectionScore, Score totalScore) {
+        if (candidateAnswer == null || candidateAnswer.isBlank()) {
+            log.debug("Question {} unattempted", question.getQuestionNumber());
+            sectionScore.addSkipped(policy.getUnattemptedMarks());
+            totalScore.addSkipped(policy.getUnattemptedMarks());
+        } else {
+            QuestionTypeEvaluator evaluator = evaluatorRegistry.getOrDefault(question.getQuestionType(),
+                    evaluatorRegistry.get(QuestionType.MCQ));
+
+            boolean isCorrect = evaluator.evaluate(candidateAnswer, answerKey.getCorrectAnswer());
+            if (isCorrect) {
+                log.debug("Question {} CORRECT", question.getQuestionNumber());
+                sectionScore.addCorrect(policy.getCorrectMarks());
+                totalScore.addCorrect(policy.getCorrectMarks());
+            } else {
+                log.debug("Question {} INCORRECT. Applying negative marking: {}", question.getQuestionNumber(),
+                        policy.getNegativeMarks());
+                sectionScore.addIncorrect(policy.getNegativeMarks());
+                totalScore.addIncorrect(policy.getNegativeMarks());
+            }
+        }
+    }
+
+    public double calculateMaxScoreForSection(Section section) {
+        MarkingPolicy policy = markingPolicyResolver.resolve(section);
+        int totalQ = section.getTotalQuestions() != null ? section.getTotalQuestions() : 0;
+        return totalQ * policy.getCorrectMarks();
+    }
+
+    public record EvaluationOutcome(Score totalScore, Map<Long, Score> sectionScores) {
+    }
 }
