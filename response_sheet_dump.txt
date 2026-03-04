@@ -1,0 +1,125 @@
+GATE 2026 8th Feb 26 S2
+Candidate ID CS26S43005059
+Candidate Name SAHIL
+Test Center
+Name iON Dizital Zone Faridabad
+Test Date 08/02/2026
+Test Time 2:30 PM - 5:30 PM
+Subject CS 2 Computer Science and Information
+Technology
+Section : General Aptitude
+Q.1
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829154
+Status : Answered
+Chosen Option : A
+Q.2
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829158
+Status : Answered
+Chosen Option : B
+Q.3
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829159
+Status : Answered
+Chosen Option : A
+Q.4
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829150
+Status : Answered
+Chosen Option : C
+Q.5
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829155
+Status : Answered
+Chosen Option : C
+Q.6
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829151
+Status : Answered
+Chosen Option : C
+Q.7
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829157
+Status : Answered
+Chosen Option : A
+Q.8
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829153
+Status : Answered
+Chosen Option : B
+Q.9
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829156
+Status : Answered
+Chosen Option : D
+Q.10
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829152
+Status : Answered
+Chosen Option : D
+Section : CS 2 Computer Science and Information Technology
+Q.1
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829169
+Status : Answered
+Chosen Option : A
+Q.2
+Given --
+Answer :
+Question Type : NAT
+Question ID : 2284829183
+Status : Not Answered
+Q.3
+Options A.
+B.
+C.
+D.
+Question Type : MCQ
+Question ID : 2284829162
+Status : Not Answered
+Chosen Option : --

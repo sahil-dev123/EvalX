@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.evalx.KeyDumpTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-03-04T07:31:50" hostname="Sahils-MacBook.local" time="0.223">
-  <properties/>
-  <testcase name="dump()" classname="com.evalx.KeyDumpTest" time="0.223"/>
-  <system-out><![CDATA[Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
-]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>
