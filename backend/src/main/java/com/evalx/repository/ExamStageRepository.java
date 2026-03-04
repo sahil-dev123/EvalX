@@ -6,4 +6,5 @@ import java.util.List;
 
 public interface ExamStageRepository extends JpaRepository<ExamStage, Long> {
     List<ExamStage> findByExamIdOrderByOrderIndexAsc(Long examId);
+    java.util.Optional<ExamStage> findByExamIdAndName(Long examId, String name);
 }

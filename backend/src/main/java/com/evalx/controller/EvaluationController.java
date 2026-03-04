@@ -12,7 +12,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/evaluation")
 @RequiredArgsConstructor
 public class EvaluationController {
 
@@ -21,22 +21,17 @@ public class EvaluationController {
 
     @PostMapping("/evaluate")
     public ResponseEntity<ApiResponse<EvaluationResponse>> evaluateUpload(
-            @RequestParam Long examYearId,
             @RequestParam("file") MultipartFile file) {
-        Map<Long, String> answers = responseParserService.parseResponseFile(file);
-        EvaluationResponse result = evaluationService.evaluate(examYearId, answers);
+        com.evalx.service.ResponseParserService.ResponseData data = responseParserService.parseResponseFile(file);
+        EvaluationResponse result = evaluationService.evaluate(data.getAnswers(), data.getMetadata());
         return ResponseEntity.ok(ApiResponse.ok("Evaluation complete", result));
     }
 
     @PostMapping("/evaluate/json")
     public ResponseEntity<ApiResponse<EvaluationResponse>> evaluateJson(
-            @RequestParam Long examYearId,
             @RequestBody Map<String, String> answers) {
-        Map<Long, String> parsedAnswers = new java.util.LinkedHashMap<>();
-        answers.forEach((k, v) -> {
-            try { parsedAnswers.put(Long.parseLong(k), v); } catch (NumberFormatException ignored) {}
-        });
-        EvaluationResponse result = evaluationService.evaluate(examYearId, parsedAnswers);
+        // Assume keys are already hashes, no metadata provided for manual JSON
+        EvaluationResponse result = evaluationService.evaluate(answers, null);
         return ResponseEntity.ok(ApiResponse.ok("Evaluation complete", result));
     }
 

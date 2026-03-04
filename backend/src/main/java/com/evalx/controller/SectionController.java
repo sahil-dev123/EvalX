@@ -28,9 +28,9 @@ public class SectionController {
                 Map.of("id", s.getId(), "name", s.getName(), "totalQuestions", s.getTotalQuestions() != null ? s.getTotalQuestions() : 0)));
     }
 
-    @GetMapping("/by-exam-year/{examYearId}")
-    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getSections(@PathVariable Long examYearId) {
-        List<Map<String, Object>> sections = sectionService.getSectionsByExamYearId(examYearId).stream()
+    @GetMapping("/by-shift/{shiftId}")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getSections(@PathVariable Long shiftId) {
+        List<Map<String, Object>> sections = sectionService.getSectionsByShiftId(shiftId).stream()
                 .map(s -> Map.<String, Object>of("id", s.getId(), "name", s.getName(),
                         "totalQuestions", s.getTotalQuestions() != null ? s.getTotalQuestions() : 0,
                         "orderIndex", s.getOrderIndex()))

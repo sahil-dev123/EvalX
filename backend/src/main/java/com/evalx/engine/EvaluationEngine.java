@@ -28,7 +28,7 @@ public class EvaluationEngine {
      * Returns a map of sectionId → Score and a total Score.
      */
     public EvaluationOutcome evaluate(List<Question> questions,
-                                       Map<Long, String> candidateAnswers,
+                                       Map<String, String> candidateAnswers,
                                        Map<Long, Section> sectionMap) {
         Score totalScore = new Score();
         Map<Long, Score> sectionScores = new HashMap<>();
@@ -41,7 +41,7 @@ public class EvaluationEngine {
             Score sectionScore = sectionScores.get(sectionId);
             MarkingPolicy policy = markingPolicyResolver.resolve(section);
 
-            String candidateAnswer = candidateAnswers.get(question.getQuestionNumber());
+            String candidateAnswer = candidateAnswers.get(question.getQuestionHash());
             AnswerKey answerKey = question.getAnswerKey();
 
             if (answerKey == null) {

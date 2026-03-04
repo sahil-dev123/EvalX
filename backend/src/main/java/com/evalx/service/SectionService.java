@@ -1,7 +1,7 @@
 package com.evalx.service;
 
 import com.evalx.dto.request.CreateSectionRequest;
-import com.evalx.entity.ExamYear;
+import com.evalx.entity.Shift;
 import com.evalx.entity.Section;
 import com.evalx.exception.ResourceNotFoundException;
 import com.evalx.repository.SectionRepository;
@@ -16,13 +16,13 @@ import java.util.List;
 public class SectionService {
 
     private final SectionRepository sectionRepository;
-    private final ExamYearService examYearService;
+    private final ShiftService shiftService;
 
     @Transactional
     public Section createSection(CreateSectionRequest request) {
-        ExamYear examYear = examYearService.findExamYearById(request.getExamYearId());
+        Shift shift = shiftService.findShiftById(request.getShiftId());
         Section section = Section.builder()
-                .examYear(examYear)
+                .shift(shift)
                 .name(request.getName())
                 .totalQuestions(request.getTotalQuestions())
                 .orderIndex(request.getOrderIndex() != null ? request.getOrderIndex() : 0)
@@ -30,8 +30,8 @@ public class SectionService {
         return sectionRepository.save(section);
     }
 
-    public List<Section> getSectionsByExamYearId(Long examYearId) {
-        return sectionRepository.findByExamYearIdOrderByOrderIndexAsc(examYearId);
+    public List<Section> getSectionsByShiftId(Long shiftId) {
+        return sectionRepository.findByShiftIdOrderByOrderIndexAsc(shiftId);
     }
 
     public Section findSectionById(Long id) {

@@ -29,7 +29,7 @@ public class PdfParserTest {
         byte[] content = Files.readAllBytes(file.toPath());
         MockMultipartFile mockFile = new MockMultipartFile("file", "response.pdf", "application/pdf", content);
 
-        Map<Long, String> answers = responseParserService.parseResponseFile(mockFile);
+        Map<String, String> answers = responseParserService.parseResponseFile(mockFile);
 
         assertNotNull(answers);
         assertFalse(answers.isEmpty(), "Answers should not be empty");
@@ -40,8 +40,9 @@ public class PdfParserTest {
         // Let's check a few known ones based on the earlier text scrape
         // Q.1 -> A
         // Q.2 -> B
-        if (answers.containsKey(1L)) {
-           assertEquals("A", answers.get(1L));
+        String q1Hash = com.evalx.util.HashUtil.generateHash("1");
+        if (answers.containsKey(q1Hash)) {
+           assertEquals("A", answers.get(q1Hash));
         }
     }
 }

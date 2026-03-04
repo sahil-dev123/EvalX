@@ -5,5 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface ExamYearRepository extends JpaRepository<ExamYear, Long> {
-    List<ExamYear> findByExamStageIdOrderByYearDesc(Long stageId);
+    List<ExamYear> findByExamStageIdOrderByYearDesc(Long examStageId);
+    java.util.Optional<ExamYear> findByExamStageIdAndYear(Long examStageId, Integer year);
 }

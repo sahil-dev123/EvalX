@@ -17,7 +17,8 @@ const state = {
   uploadedFile: null,
   result: null,
   loading: false,
-  adminSection: 'dashboard',
+  adminSection: 'magic-ingest',
+  adminAdvancedOpen: false,
   adminToken: localStorage.getItem('evalx_admin_token') || null,
   adminExams: [],
   adminStages: [],
@@ -57,6 +58,13 @@ function navigate(page, data) {
   if (data) Object.assign(state, data);
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  // Update URL without refresh
+  const path = page === 'home' ? '/' : `/${page}`;
+  if (window.location.pathname !== path) {
+    window.history.pushState({ page }, '', path);
+  }
+
   // Update nav
   document.querySelectorAll('.nav-links button').forEach(b => b.classList.remove('active'));
   const navEl = document.getElementById(`nav-${page === 'admin' ? 'admin' : 'home'}`);
@@ -116,6 +124,30 @@ function renderHome() {
         </div>
       </div>
     </div>
+    <div class="section" id="universal-upload-section">
+      <div class="container">
+        <div class="card premium-card fade-in">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="badge badge-success">Magic Auto-Detect</span>
+            <h2>Universal Response Upload</h2>
+          </div>
+          <p class="text-secondary mb-3">Skip the manual selection! Drag and drop your GATE, SSC, or CAT response sheet PDF here. Our AI-ready engine will automatically detect your exam, shift, and year.</p>
+          
+          <div class="upload-zone" id="universal-upload-zone" 
+               ondragover="event.preventDefault(); this.classList.add('dragover')"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="handleUniversalDrop(event)"
+               onclick="document.getElementById('universal-file-input').click()">
+            <input type="file" id="universal-file-input" accept=".pdf,.csv,.json" onchange="handleUniversalFile(event)">
+            <div class="icon">✨</div>
+            <h3>Drop your response sheet here</h3>
+            <p class="text-muted">Supports PDF, CSV, and JSON</p>
+            <div id="universal-file-info" class="file-info hidden"></div>
+          </div>
+          <button class="btn btn-primary btn-lg mt-3 w-100" id="universal-upload-btn" onclick="uploadUniversalResponse()" disabled>⚡ Calculate My Score</button>
+        </div>
+      </div>
+    </div>
     <div class="section" style="border-top: 1px solid var(--border);">
       <div class="container">
         <div class="grid grid-3">
@@ -125,6 +157,37 @@ function renderHome() {
         </div>
       </div>
     </div>`;
+}
+
+let universalFile = null;
+
+function handleUniversalDrop(e) {
+  e.preventDefault(); e.currentTarget.classList.remove('dragover');
+  universalFile = e.dataTransfer.files[0]; showUniversalFileInfo();
+}
+function handleUniversalFile(e) { universalFile = e.target.files[0]; showUniversalFileInfo(); }
+function showUniversalFileInfo() {
+  if (!universalFile) return;
+  const info = document.getElementById('universal-file-info');
+  info.textContent = `✓ ${universalFile.name}`;
+  info.classList.remove('hidden');
+  document.getElementById('universal-upload-btn').disabled = false;
+}
+
+async function uploadUniversalResponse() {
+  if (!universalFile) return;
+  state.loading = true; render();
+  try {
+    const formData = new FormData();
+    formData.append('file', universalFile);
+    const result = await api('POST', '/api/evaluation/evaluate', formData, true);
+    state.result = result;
+    navigate('result');
+    toast('Evaluation Complete!', 'success');
+  } catch (e) {
+    toast('Evaluation Failed: ' + e.message, 'error');
+    state.loading = false; render();
+  }
 }
 
 async function loadExams() {
@@ -329,7 +392,7 @@ async function submitResponse() {
   try {
     const formData = new FormData();
     formData.append('file', state.uploadedFile);
-    const res = await fetch(`${API}/api/evaluate?examYearId=${state.selectedYear.id}`, {
+    const res = await fetch(`${API}/api/evaluation/evaluate?examYearId=${state.selectedYear.id}`, {
       method: 'POST', body: formData
     });
     const json = await res.json();
@@ -355,9 +418,9 @@ function renderResult() {
     <div class="page fade-in">
       <div class="result-hero">
         <div class="container">
-          <p class="text-secondary">${state.selectedExam?.name} — ${state.selectedStage?.name} — ${state.selectedYear?.year}</p>
+          <p class="text-secondary">${r.examName || state.selectedExam?.name || 'Exam'} — ${r.stageName || state.selectedStage?.name || 'Stage'} — ${r.year || state.selectedYear?.year || 'Year'}</p>
           <div class="score-display text-gradient">${r.totalScore} / ${r.maxScore}</div>
-          <p class="score-sub">Your Score</p>
+          <p class="score-sub">${r.shiftName ? r.shiftName : 'Your Score'}</p>
         </div>
       </div>
 
@@ -555,13 +618,28 @@ function renderAdmin() {
   return `
     <div class="admin-layout">
       <aside class="admin-sidebar">
-        <div class="menu-label">Management</div>
-        ${['dashboard', 'exams', 'stages', 'sections', 'questions', 'answer-keys', 'marking', 'candidates'].map(s =>
+        <div class="menu-label">Main</div>
+        <button class="menu-item ${state.adminSection === 'magic-ingest' ? 'active' : ''}" onclick="adminNav('magic-ingest')">
+          <span>🚀</span> Magic PDF Ingest
+        </button>
+        <button class="menu-item ${state.adminSection === 'dashboard' ? 'active' : ''}" onclick="adminNav('dashboard')">
+          <span>📊</span> Stats
+        </button>
+        
+        <div class="menu-label flex justify-between items-center" style="cursor:pointer" onclick="toggleAdminAdvanced()">
+          <span>⚙️ Advanced Settings</span>
+          <span>${state.adminAdvancedOpen ? '▾' : '▸'}</span>
+        </div>
+        
+        <div id="admin-advanced-menu" class="${state.adminAdvancedOpen ? '' : 'hidden'}">
+          ${['exams', 'stages', 'sections', 'questions', 'marking', 'candidates'].map(s =>
     `<button class="menu-item ${state.adminSection === s ? 'active' : ''}" onclick="adminNav('${s}')">
-            <span>${{ 'dashboard': '📊', 'exams': '📋', 'stages': '📑', 'sections': '📁', 'questions': '❓', 'answer-keys': '🔑', 'marking': '⚖️', 'candidates': '👥' }[s]}</span>
-            ${s.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ')}
-          </button>`
+              <span>${{ 'exams': '📋', 'stages': '📑', 'sections': '📁', 'questions': '❓', 'marking': '⚖️', 'candidates': '👥' }[s]}</span>
+              ${s.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ')}
+            </button>`
   ).join('')}
+        </div>
+        
         <div style="margin-top:auto; padding-top:24px;">
            <button class="menu-item" style="color:var(--danger)" onclick="adminLogout()"><span>🚪</span> Logout</button>
         </div>
@@ -580,15 +658,82 @@ function adminNav(section) {
 
 function renderAdminSection() {
   switch (state.adminSection) {
+    case 'magic-ingest': return renderAdminPdfIngest();
     case 'dashboard': return renderAdminDashboard();
     case 'exams': return renderAdminExams();
     case 'stages': return renderAdminStages();
     case 'sections': return renderAdminSections();
     case 'questions': return renderAdminQuestions();
-    case 'answer-keys': return renderAdminAnswerKeys();
     case 'marking': return renderAdminMarking();
     case 'candidates': return renderAdminCandidates();
-    default: return renderAdminDashboard();
+    default: return renderAdminPdfIngest();
+  }
+}
+
+function toggleAdminAdvanced() {
+  state.adminAdvancedOpen = !state.adminAdvancedOpen;
+  render();
+}
+
+function renderAdminPdfIngest() {
+  return `
+    <div class="hero-mini fade-in">
+       <h1>✨ Magic <span class="text-gradient">PDF Ingest</span></h1>
+       <p>Automate your entire exam setup by uploading master documents. No manual forms needed.</p>
+    </div>
+    <div class="card premium-card mb-4 fade-in" style="max-width: 800px; margin: 0 auto;">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="badge badge-success">V3 Magic</span>
+        <h3>Zero-Friction Exam Seeding</h3>
+      </div>
+      
+      <div class="grid grid-2 gap-4 mt-2">
+        <div class="form-group">
+          <label>1. Master Question Paper PDF</label>
+          <div class="upload-zone" style="padding: 40px 20px;" onclick="document.getElementById('main-ingest-qp').click()">
+            <input type="file" id="main-ingest-qp" accept=".pdf" style="display:none" onchange="this.parentElement.querySelector('small').textContent = '✓ ' + this.files[0].name">
+            <div class="icon" style="font-size:2rem">📄</div>
+            <small class="text-muted">Select Master Paper...</small>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>2. Official Answer Key PDF</label>
+          <div class="upload-zone" style="padding: 40px 20px;" onclick="document.getElementById('main-ingest-ak').click()">
+            <input type="file" id="main-ingest-ak" accept=".pdf" style="display:none" onchange="this.parentElement.querySelector('small').textContent = '✓ ' + this.files[0].name">
+            <div class="icon" style="font-size:2rem">🔑</div>
+            <small class="text-muted">Select Answer Key...</small>
+          </div>
+        </div>
+      </div>
+      
+      <button class="btn btn-primary btn-lg mt-4 w-100 justify-center" id="main-ingest-btn" onclick="ingestPdfsDirectly()">🚀 Process & Auto-Create Exam</button>
+      
+      <p class="text-muted mt-3 text-center" style="font-size:0.8rem;">
+        Our engine will auto-detect the <b>Exam (GATE/SSC/CAT)</b>, <b>Year</b>, and <b>Shift</b> from the PDF headers and create the entire structure for you.
+      </p>
+    </div>`;
+}
+
+async function ingestPdfsDirectly() {
+  const qpFile = document.getElementById('main-ingest-qp').files[0];
+  const akFile = document.getElementById('main-ingest-ak').files[0];
+
+  if (!qpFile || !akFile) return toast('Both PDF files are required', 'error');
+
+  const btn = document.getElementById('main-ingest-btn');
+  btn.disabled = true; btn.textContent = 'Parsing PDFs & Creating Hierarchy...';
+
+  try {
+    const formData = new FormData();
+    formData.append('questionPaper', qpFile);
+    formData.append('answerKey', akFile);
+    await api('POST', `/api/admin/ingest`, formData, true);
+    toast('Magic! Exam hierarchy created and seeded successfully.', 'success');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🚀 Process & Auto-Create Exam';
   }
 }
 
@@ -608,8 +753,8 @@ function renderAdminDashboard() {
         <tr><td>1.</td><td>Create an <strong>Exam</strong> (e.g., SSC CGL, GATE)</td><td><button class="btn btn-sm btn-secondary" onclick="adminNav('exams')">Go →</button></td></tr>
         <tr><td>2.</td><td>Add <strong>Stages</strong> (e.g., Pre, Mains)</td><td><button class="btn btn-sm btn-secondary" onclick="adminNav('stages')">Go →</button></td></tr>
         <tr><td>3.</td><td>Create <strong>Exam Year</strong> with candidate count</td><td><button class="btn btn-sm btn-secondary" onclick="adminNav('stages')">Go →</button></td></tr>
-        <tr><td>4.</td><td>Add <strong>Sections</strong> (e.g., Reasoning, GA)</td><td><button class="btn btn-sm btn-secondary" onclick="adminNav('sections')">Go →</button></td></tr>
-        <tr><td>5.</td><td>Upload <strong>Questions & Answer Keys</strong> via CSV</td><td><button class="btn btn-sm btn-secondary" onclick="adminNav('questions')">Go →</button></td></tr>
+        <tr><td>4.</td><td><strong>Magic Ingest (V2):</strong> Seed Shift via <strong>Master PDFs</strong></td><td><button class="btn btn-sm btn-primary" onclick="adminNav('pdf-ingest')">🚀 Start PDF Ingest</button></td></tr>
+        <tr><td>5.</td><td><strong>Manual Path:</strong> Upload <strong>Answer Keys</strong> via CSV</td><td><button class="btn btn-sm btn-secondary" onclick="adminNav('questions')">Go →</button></td></tr>
         <tr><td>6.</td><td>Set <strong>Marking Scheme</strong> (+2, −0.5)</td><td><button class="btn btn-sm btn-secondary" onclick="adminNav('marking')">Go →</button></td></tr>
       </table>
     </div>`;
@@ -745,8 +890,14 @@ async function showCreateSectionModal() {
 // QUESTIONS
 function renderAdminQuestions() {
   return `
-    <h2 class="mb-3">Upload Questions & Answer Keys</h2>
-    <div class="card mb-3">
+    <h2 class="mb-3">Questions & Answer Keys</h2>
+    
+    <div class="tabs mb-2">
+      <button class="tab-btn active" onclick="switchQuestionTab('bulk')">CSV Bulk Upload</button>
+      <button class="tab-btn" onclick="switchQuestionTab('ingest')">Magic PDF Ingest (V2)</button>
+    </div>
+
+    <div id="question-tab-bulk" class="card mb-3">
       <h3 class="mb-2">Bulk Upload via CSV</h3>
       <p class="text-secondary mb-2" style="font-size:0.85rem;">CSV format: <code>questionNumber,questionType,correctAnswer</code></p>
       <div class="form-group"><label>Section ID</label><input class="form-input" id="q-section-id" type="number" placeholder="Section ID"></div>
@@ -762,7 +913,62 @@ function renderAdminQuestions() {
         <div id="q-file-info" class="file-info hidden"></div>
       </div>
       <button class="btn btn-primary mt-2" id="q-upload-btn" onclick="uploadQuestions()" disabled>Upload Questions</button>
+    </div>
+
+    <div id="question-tab-ingest" class="card mb-3 hidden">
+      <h3 class="mb-2">Master PDF Ingest</h3>
+      <p class="text-secondary mb-3" style="font-size:0.85rem;">Upload both the master Question Paper and official Answer Key PDF. We'll extract text, generate hashes, and seed everything automatically.</p>
+      
+      <div class="form-group"><label>Shift ID</label><input class="form-input" id="ingest-shift-id" type="number" placeholder="Enter Shift ID"></div>
+      
+      <div class="grid grid-2 gap-2 mt-2">
+        <div class="form-group">
+          <label>Question Paper PDF</label>
+          <input type="file" id="ingest-qp-file" accept=".pdf" class="form-input">
+        </div>
+        <div class="form-group">
+          <label>Answer Key PDF</label>
+          <input type="file" id="ingest-ak-file" accept=".pdf" class="form-input">
+        </div>
+      </div>
+      
+      <button class="btn btn-primary mt-3 w-100" id="ingest-btn" onclick="ingestMasterPdfs()">🚀 Ingest & Seed Shift</button>
     </div>`;
+}
+
+function switchQuestionTab(tab) {
+  document.getElementById('question-tab-bulk').classList.toggle('hidden', tab !== 'bulk');
+  document.getElementById('question-tab-ingest').classList.toggle('hidden', tab !== 'ingest');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(tab)));
+}
+
+async function ingestMasterPdfs() {
+  const shiftId = +document.getElementById('ingest-shift-id').value;
+  const qpFile = document.getElementById('ingest-qp-file').files[0];
+  const akFile = document.getElementById('ingest-ak-file').files[0];
+
+  if (!shiftId || !qpFile || !akFile) {
+    toast('Shift ID and both PDF files are required', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('ingest-btn');
+  btn.disabled = true;
+  btn.textContent = 'Ingesting...';
+
+  try {
+    const formData = new FormData();
+    formData.append('questionPaper', qpFile);
+    formData.append('answerKey', akFile);
+
+    await api('POST', `/api/shifts/${shiftId}/ingest`, formData, true);
+    toast('Shift seeded successfully from PDFs!', 'success');
+  } catch (e) {
+    toast('Ingest failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🚀 Ingest & Seed Shift';
+  }
 }
 
 let questionFile = null;
@@ -975,5 +1181,18 @@ async function loadAdminSections() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  navigate('home');
+  const path = window.location.pathname.substring(1);
+  const validPages = ['admin', 'upload', 'result', 'stages', 'years'];
+  if (validPages.includes(path)) {
+    navigate(path);
+  } else {
+    navigate('home');
+  }
+});
+
+window.addEventListener('popstate', (e) => {
+  if (e.state && e.state.page) {
+    state.page = e.state.page;
+    render();
+  }
 });

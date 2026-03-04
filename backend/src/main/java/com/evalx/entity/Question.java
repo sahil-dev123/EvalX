@@ -4,7 +4,9 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "questions")
+@Table(name = "questions", indexes = {
+    @Index(name = "idx_question_hash", columnList = "question_hash")
+})
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Question {
 
@@ -18,6 +20,15 @@ public class Question {
 
     private Long questionNumber;
 
+    @Column(name = "question_text", columnDefinition = "TEXT")
+    private String questionText;
+
+    @Column(columnDefinition = "TEXT")
+    private String options; // Stored as JSON or delimited string
+
+    @Column(name = "question_hash", length = 64)
+    private String questionHash; // SHA-256 hash
+    
     @Column(name = "question_type")
     @Enumerated(EnumType.STRING)
     @Builder.Default

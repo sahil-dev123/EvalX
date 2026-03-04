@@ -15,6 +15,8 @@ public class BulkQuestionRequest {
     @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
     public static class QuestionItem {
         private Long questionNumber;
+        private String questionText;
+        private String questionHash;
         private String questionType;
         private String correctAnswer;
     }
