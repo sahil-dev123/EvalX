@@ -32,9 +32,8 @@ public class ExamYear {
     private Integer timeMinutes;
 
     @OneToMany(mappedBy = "examYear", cascade = CascadeType.ALL, orphanRemoval = true)
-    @OrderBy("orderIndex ASC")
     @Builder.Default
-    private List<Section> sections = new ArrayList<>();
+    private List<Shift> shifts = new ArrayList<>();
 
     @OneToMany(mappedBy = "examYear", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default

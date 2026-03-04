@@ -20,6 +20,7 @@ public class DataSeeder implements CommandLineRunner {
     private final ExamStageService examStageService;
     private final ExamYearService examYearService;
     private final SectionService sectionService;
+    private final ShiftService shiftService;
     private final MarkingPolicyService markingPolicyService;
     private final QuestionService questionService;
 
@@ -66,6 +67,12 @@ public class DataSeeder implements CommandLineRunner {
                 .timeMinutes(60)
                 .build());
 
+        // Create Shift for Pre
+        var preShift = shiftService.createShift(CreateShiftRequest.builder()
+                .examYearId(preYear.getId())
+                .name("Shift 1")
+                .build());
+
         // Create Sections for Pre
         String[] sectionNames = {
                 "General Intelligence and Reasoning",
@@ -77,7 +84,7 @@ public class DataSeeder implements CommandLineRunner {
         Long[] sectionIds = new Long[4];
         for (int i = 0; i < sectionNames.length; i++) {
             var section = sectionService.createSection(CreateSectionRequest.builder()
-                    .examYearId(preYear.getId())
+                    .shiftId(preShift.getId())
                     .name(sectionNames[i])
                     .totalQuestions(25)
                     .orderIndex(i + 1)
@@ -98,8 +105,11 @@ public class DataSeeder implements CommandLineRunner {
         for (int s = 0; s < 4; s++) {
             List<BulkQuestionRequest.QuestionItem> items = new ArrayList<>();
             for (int q = 1; q <= 25; q++) {
+                long qNum = (long) (s * 25 + q);
                 items.add(BulkQuestionRequest.QuestionItem.builder()
-                        .questionNumber((long) (s * 25 + q))
+                        .questionNumber(qNum)
+                        .questionHash(com.evalx.util.HashUtil.generateHash(String.valueOf(qNum)))
+                        .questionText("Mock Question Text for Q" + qNum)
                         .questionType("MCQ")
                         .correctAnswer(answers[(s * 25 + q - 1) % 4])
                         .build());

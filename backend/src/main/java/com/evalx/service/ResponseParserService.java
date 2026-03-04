@@ -20,28 +20,56 @@ public class ResponseParserService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
-     * Parse a response file (CSV or JSON) and return a map of questionNumber → answer.
+     * Parse a response file (CSV or JSON) and return a map of questionNumber →
+     * answer.
      */
-    public Map<Long, String> parseResponseFile(MultipartFile file) {
+    public ResponseData parseResponseFile(MultipartFile file) {
         String filename = file.getOriginalFilename();
-        if (filename == null) throw new InvalidFileException("File name is required");
+        if (filename == null)
+            throw new InvalidFileException("File name is required");
 
         String ext = filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
 
         return switch (ext) {
-            case "csv" -> parseCsv(file);
-            case "json" -> parseJson(file);
             case "pdf" -> parsePdf(file);
-            default -> throw new InvalidFileException("Unsupported file format: " + ext + ". Supported: CSV, JSON, PDF");
+            case "csv" -> new ResponseData(parseCsv(file), null);
+            case "json" -> new ResponseData(parseJson(file), null);
+            default ->
+                throw new InvalidFileException("Unsupported file format: " + ext + ". Supported: CSV, JSON, PDF");
         };
     }
 
-    private Map<Long, String> parsePdf(MultipartFile file) {
-        Map<Long, String> answers = new LinkedHashMap<>();
-        try (org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.pdmodel.PDDocument.load(file.getInputStream())) {
+    @lombok.Getter
+    @lombok.AllArgsConstructor
+    public static class ResponseData {
+        private Map<String, String> answers;
+        private Map<String, String> metadata;
+    }
+
+    private ResponseData parsePdf(MultipartFile file) {
+        Map<String, String> answers = new LinkedHashMap<>();
+        Map<String, String> metadata = new HashMap<>();
+        try (org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.Loader.loadPDF(file.getBytes())) {
             org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
             String text = stripper.getText(document);
-            
+
+            // Extract Metadata for Auto-Detection
+            // Example: "GATE 2026 8th Feb 26 S2"
+            java.util.regex.Matcher metaMatcher = java.util.regex.Pattern.compile("(GATE|SSC|CAT)\\s+(\\d{4})\\s+(.*)")
+                    .matcher(text);
+            if (metaMatcher.find()) {
+                metadata.put("exam", metaMatcher.group(1));
+                metadata.put("year", metaMatcher.group(2));
+                metadata.put("raw_shift", metaMatcher.group(3).trim());
+            }
+
+            // Extract Shift Specifics (e.g., S1, S2, Morning, Afternoon)
+            java.util.regex.Matcher shiftMatcher = java.util.regex.Pattern
+                    .compile("(S1|S2|Shift \\d|Morning|Afternoon)").matcher(text);
+            if (shiftMatcher.find()) {
+                metadata.put("shift", shiftMatcher.group(1));
+            }
+
             // GATE response sheet format:
             // "Q.1"
             // ...
@@ -55,18 +83,31 @@ public class ResponseParserService {
             for (int i = 1; i < blocks.length; i++) {
                 String req = blocks[i];
                 try {
-                    // Extract question number
-                    String qNumStr = req.substring(0, req.indexOf('\n')).trim();
-                    long qNum = Long.parseLong(qNumStr);
+                    // Extract question text: between the first newline and 'Question Type :'
+                    int firstNewline = req.indexOf('\n');
+                    int typeMarker = req.indexOf("Question Type :");
+
+                    String qText = "";
+                    if (firstNewline != -1 && typeMarker != -1 && typeMarker > firstNewline) {
+                        qText = req.substring(firstNewline, typeMarker).trim();
+                        // Clean up text to match master paper extraction (whitespace, footers)
+                        qText = qText.replaceAll("(?i)Organizing Institute:.*Page \\d+ of \\d+", "").trim();
+                    }
+
+                    if (qText.isEmpty())
+                        continue;
+
+                    String qHash = com.evalx.util.HashUtil.generateHash(qText);
 
                     // Extract chosen option or given answer
-                    java.util.regex.Matcher m1 = java.util.regex.Pattern.compile("Chosen Option : ([A-D])").matcher(req);
+                    java.util.regex.Matcher m1 = java.util.regex.Pattern.compile("Chosen Option : ([A-D])")
+                            .matcher(req);
                     java.util.regex.Matcher m2 = java.util.regex.Pattern.compile("Given Answer : (.*)").matcher(req);
-                    
+
                     if (m1.find()) {
-                        answers.put(qNum, m1.group(1).trim());
+                        answers.put(qHash, m1.group(1).trim());
                     } else if (m2.find()) {
-                        answers.put(qNum, m2.group(1).trim());
+                        answers.put(qHash, m2.group(1).trim());
                     }
                 } catch (Exception e) {
                     log.debug("Error parsing block: " + e.getMessage());
@@ -76,21 +117,22 @@ public class ResponseParserService {
         } catch (IOException e) {
             throw new InvalidFileException("Failed to read PDF: " + e.getMessage());
         }
-        
+
         if (answers.isEmpty()) {
             throw new InvalidFileException("Could not extract any completed answers from the PDF.");
         }
-        return answers;
+        return new ResponseData(answers, metadata);
     }
 
-    private Map<Long, String> parseCsv(MultipartFile file) {
-        Map<Long, String> answers = new LinkedHashMap<>();
+    private Map<String, String> parseCsv(MultipartFile file) {
+        Map<String, String> answers = new LinkedHashMap<>();
         try (CSVReader reader = new CSVReader(new InputStreamReader(file.getInputStream()))) {
             List<String[]> rows = reader.readAll();
             boolean hasHeader = false;
 
             for (String[] row : rows) {
-                if (row.length < 2) continue;
+                if (row.length < 2)
+                    continue;
 
                 // Skip header row
                 if (!hasHeader && (row[0].equalsIgnoreCase("questionId") ||
@@ -103,10 +145,10 @@ public class ResponseParserService {
                 hasHeader = true;
 
                 try {
-                    long qNum = Long.parseLong(row[0].trim());
+                    String qHash = com.evalx.util.HashUtil.generateHash(row[0].trim());
                     String answer = row[1].trim();
                     if (!answer.isEmpty()) {
-                        answers.put(qNum, answer);
+                        answers.put(qHash, answer);
                     }
                 } catch (NumberFormatException e) {
                     log.warn("Skipping invalid row: {}", Arrays.toString(row));
@@ -122,11 +164,12 @@ public class ResponseParserService {
         return answers;
     }
 
-    private Map<Long, String> parseJson(MultipartFile file) {
-        Map<Long, String> answers = new LinkedHashMap<>();
+    private Map<String, String> parseJson(MultipartFile file) {
+        Map<String, String> answers = new LinkedHashMap<>();
         try {
             List<Map<String, Object>> items = objectMapper.readValue(
-                    file.getInputStream(), new TypeReference<>() {});
+                    file.getInputStream(), new TypeReference<>() {
+                    });
 
             for (Map<String, Object> item : items) {
                 Object qId = item.getOrDefault("questionId",
@@ -138,8 +181,8 @@ public class ResponseParserService {
                                 item.get("a")));
 
                 if (qId != null && ans != null) {
-                    long qNum = qId instanceof Number ? ((Number) qId).longValue() : Long.parseLong(qId.toString());
-                    answers.put(qNum, ans.toString().trim());
+                    String qHash = com.evalx.util.HashUtil.generateHash(qId.toString());
+                    answers.put(qHash, ans.toString().trim());
                 }
             }
         } catch (IOException e) {

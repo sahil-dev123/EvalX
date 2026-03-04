@@ -6,8 +6,7 @@ import lombok.*;
 
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class CreateSectionRequest {
-    @NotNull(message = "Exam Year ID is required")
-    private Long examYearId;
+    private Long shiftId;
 
     @NotBlank(message = "Section name is required")
     private String name;

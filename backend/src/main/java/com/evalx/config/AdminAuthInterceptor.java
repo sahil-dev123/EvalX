@@ -12,7 +12,8 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class AdminAuthInterceptor implements HandlerInterceptor {
 
     @Override
-    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
+            throws Exception {
         // Pre-flight CORS requests should always pass
         if (HttpMethod.OPTIONS.name().equalsIgnoreCase(request.getMethod())) {
             return true;
@@ -21,7 +22,8 @@ public class AdminAuthInterceptor implements HandlerInterceptor {
         String path = request.getRequestURI();
 
         // Let evaluation and public GET endpoints pass
-        if (path.startsWith("/api/evaluate") || path.startsWith("/api/auth") || HttpMethod.GET.name().equalsIgnoreCase(request.getMethod())) {
+        if (path.startsWith("/api/evaluation") || path.startsWith("/api/auth")
+                || HttpMethod.GET.name().equalsIgnoreCase(request.getMethod())) {
             return true;
         }
 
@@ -34,7 +36,7 @@ public class AdminAuthInterceptor implements HandlerInterceptor {
                     return true;
                 }
             }
-            
+
             response.setStatus(HttpStatus.UNAUTHORIZED.value());
             response.setContentType("application/json");
             response.getWriter().write("{\"success\":false,\"message\":\"Unauthorized: Admin token required\"}");

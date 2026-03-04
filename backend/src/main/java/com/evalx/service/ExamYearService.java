@@ -58,13 +58,12 @@ public class ExamYearService {
     }
 
     private ExamYearResponse toResponse(ExamYear ey) {
-        List<ExamYearResponse.SectionInfo> sections = ey.getSections() != null
-                ? ey.getSections().stream()
-                .map(s -> ExamYearResponse.SectionInfo.builder()
+        List<ExamYearResponse.ShiftInfo> shifts = ey.getShifts() != null
+                ? ey.getShifts().stream()
+                .map(s -> ExamYearResponse.ShiftInfo.builder()
                         .id(s.getId())
                         .name(s.getName())
-                        .totalQuestions(s.getTotalQuestions())
-                        .orderIndex(s.getOrderIndex())
+                        .shiftDate(s.getShiftDate())
                         .build())
                 .collect(Collectors.toList())
                 : List.of();
@@ -78,7 +77,7 @@ public class ExamYearService {
                 .totalCandidates(ey.getTotalCandidates())
                 .totalMarks(ey.getTotalMarks())
                 .timeMinutes(ey.getTimeMinutes())
-                .sections(sections)
+                .shifts(shifts)
                 .build();
     }
 }

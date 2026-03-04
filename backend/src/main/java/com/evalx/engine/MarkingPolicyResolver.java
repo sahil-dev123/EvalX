@@ -17,7 +17,7 @@ public class MarkingPolicyResolver {
      * Priority: section-specific → exam-year-level fallback.
      */
     public MarkingPolicy resolve(Section section) {
-        Long examYearId = section.getExamYear().getId();
+        Long examYearId = section.getShift().getExamYear().getId();
         Long sectionId = section.getId();
 
         // Try section-specific policy first

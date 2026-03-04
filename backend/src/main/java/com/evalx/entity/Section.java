@@ -15,8 +15,8 @@ public class Section {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "exam_year_id", nullable = false)
-    private ExamYear examYear;
+    @JoinColumn(name = "shift_id", nullable = false)
+    private Shift shift;
 
     @Column(nullable = false)
     private String name;

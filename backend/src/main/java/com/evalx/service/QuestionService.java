@@ -57,6 +57,8 @@ public class QuestionService {
             Question question = Question.builder()
                     .section(section)
                     .questionNumber(item.getQuestionNumber())
+                    .questionText(item.getQuestionText())
+                    .questionHash(item.getQuestionHash())
                     .questionType(type)
                     .build();
             question = questionRepository.save(question);

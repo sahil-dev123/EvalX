@@ -13,13 +13,12 @@ public class ExamYearResponse {
     private Long totalCandidates;
     private Double totalMarks;
     private Integer timeMinutes;
-    private List<SectionInfo> sections;
+    private List<ShiftInfo> shifts;
 
     @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
-    public static class SectionInfo {
+    public static class ShiftInfo {
         private Long id;
         private String name;
-        private Integer totalQuestions;
-        private Integer orderIndex;
+        private java.time.LocalDate shiftDate;
     }
 }
