@@ -1,5 +1,7 @@
 package com.evalx.controller;
 
+import com.evalx.constants.ApiConstants;
+import com.evalx.constants.LogConstants;
 import com.evalx.dto.response.ApiResponse;
 import com.evalx.service.QuestionPaperParserService;
 import lombok.RequiredArgsConstructor;
@@ -12,7 +14,7 @@ import java.io.IOException;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/admin")
+@RequestMapping(ApiConstants.ADMIN_API)
 @RequiredArgsConstructor
 public class AdminController {
 
@@ -22,10 +24,11 @@ public class AdminController {
     public ResponseEntity<ApiResponse<String>> ingestMasterPdfs(
             @RequestParam("questionPaper") MultipartFile questionPaper,
             @RequestParam("answerKey") MultipartFile answerKey) throws IOException {
-        
-        log.info("Starting Universal Magic Ingest for admin PDFs");
+
+        log.info(LogConstants.START_INGEST, questionPaper.getOriginalFilename(), answerKey.getOriginalFilename());
         questionPaperParserService.universalIngest(questionPaper, answerKey);
-        
+        log.info(LogConstants.COMPLETED_INGEST);
+
         return ResponseEntity.ok(ApiResponse.ok("Shift successfully seeded with Magic Ingest!", null));
     }
 }

@@ -1,8 +1,15 @@
 package com.evalx.service;
 
+import com.evalx.constants.ExamConstants;
+import com.evalx.constants.LogConstants;
 import com.evalx.entity.*;
 import com.evalx.repository.AnswerKeyRepository;
 import com.evalx.repository.QuestionRepository;
+import com.evalx.repository.ExamRepository;
+import com.evalx.repository.ExamStageRepository;
+import com.evalx.repository.ExamYearRepository;
+import com.evalx.repository.ShiftRepository;
+import com.evalx.repository.MarkingPolicyRepository;
 import com.evalx.util.HashUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,13 +32,14 @@ public class QuestionPaperParserService {
 
     private final QuestionRepository questionRepository;
     private final AnswerKeyRepository answerKeyRepository;
-    private final SectionService sectionService;
-    private final ShiftService shiftService;
-    private final com.evalx.repository.ExamRepository examRepository;
-    private final com.evalx.repository.ExamStageRepository examStageRepository;
-    private final com.evalx.repository.ExamYearRepository examYearRepository;
-    private final com.evalx.repository.ShiftRepository shiftRepository;
-    private final com.evalx.repository.MarkingPolicyRepository markingPolicyRepository;
+    private final ExamManagementService examManagementService;
+    private final ExamRepository examRepository;
+    private final ExamStageRepository examStageRepository;
+    private final ExamYearRepository examYearRepository;
+    private final ShiftRepository shiftRepository;
+    private final MarkingPolicyRepository markingPolicyRepository;
+
+    private static final String FOOTER_REGEX = "(?i)Organizing Institute:.*Page \\d+ of \\d+";
 
     /**
      * Universal Ingest: Extracts metadata from the master PDF and auto-creates the
@@ -39,57 +47,77 @@ public class QuestionPaperParserService {
      */
     @Transactional
     public void universalIngest(MultipartFile questionPaper, MultipartFile answerKey) throws IOException {
+        log.info(LogConstants.START_METHOD, "universalIngest");
+        log.info("Processing universal ingest for questionPaper={}, answerKey={}",
+                questionPaper.getOriginalFilename(), answerKey.getOriginalFilename());
+
         String qpText;
         try (PDDocument doc = Loader.loadPDF(questionPaper.getBytes())) {
             qpText = new PDFTextStripper().getText(doc);
         }
 
         // 1. Extract Metadata from Header
-        // Example: "GATE 2026 8th Feb 26 S2"
-        String examCode = "GATE";
-        int year = 2026;
-        String shiftName = "Shift S1";
+        String examCode = ExamConstants.GATE;
+        int year = ExamConstants.DEFAULT_YEAR;
+        String shiftName = ExamConstants.DEFAULT_SHIFT;
 
+        // Regex for detecting common exam codes and years
         Matcher metaMatcher = Pattern.compile("(GATE|SSC|CAT)\\s+(\\d{4})").matcher(qpText);
         if (metaMatcher.find()) {
             examCode = metaMatcher.group(1).toUpperCase();
             year = Integer.parseInt(metaMatcher.group(2));
+            log.debug("Extracted metadata: examCode={}, year={}", examCode, year);
         }
 
         Matcher shiftMatcher = Pattern.compile("(S1|S2|Shift \\d|Morning|Afternoon)").matcher(qpText);
         if (shiftMatcher.find()) {
             shiftName = "Shift " + shiftMatcher.group(1);
+            log.debug("Extracted shift detail: {}", shiftName);
         }
 
         // 2. Find or Create Hierarchy
         final String finalExamCode = examCode;
         Exam exam = examRepository.findByCode(examCode)
-                .orElseGet(() -> examRepository.save(Exam.builder()
-                        .code(finalExamCode)
-                        .name(finalExamCode.equalsIgnoreCase("GATE") ? "Graduate Aptitude Test in Engineering"
-                                : finalExamCode)
-                        .description("Automated Exam created by EvalX Magic Ingest")
-                        .build()));
+                .orElseGet(() -> {
+                    log.info("Creating new exam entity for code: {}", finalExamCode);
+                    return examRepository.save(Exam.builder()
+                            .code(finalExamCode)
+                            .name(finalExamCode.equalsIgnoreCase(ExamConstants.GATE)
+                                    ? "Graduate Aptitude Test in Engineering"
+                                    : finalExamCode)
+                            .description("Automated Exam created by EvalX Magic Ingest")
+                            .build());
+                });
 
-        ExamStage stage = examStageRepository.findByExamIdAndName(exam.getId(), "Tier 1")
-                .orElseGet(() -> examStageRepository.save(ExamStage.builder()
-                        .exam(exam)
-                        .name("Tier 1")
-                        .orderIndex(1)
-                        .build()));
+        ExamStage stage = examStageRepository.findByExamIdAndName(exam.getId(), ExamConstants.DEFAULT_STAGE)
+                .orElseGet(() -> {
+                    log.info("Creating new exam stage: {} for examId={}", ExamConstants.DEFAULT_STAGE, exam.getId());
+                    return examStageRepository.save(ExamStage.builder()
+                            .exam(exam)
+                            .name(ExamConstants.DEFAULT_STAGE)
+                            .orderIndex(1)
+                            .build());
+                });
 
         final int finalYear = year;
         ExamYear examYear = examYearRepository.findByExamStageIdAndYear(stage.getId(), year)
-                .orElseGet(() -> examYearRepository.save(ExamYear.builder()
-                        .examStage(stage)
-                        .year(finalYear)
-                        .build()));
+                .orElseGet(() -> {
+                    log.info("Creating new exam year: {} for stageId={}", finalYear, stage.getId());
+                    return examYearRepository.save(ExamYear.builder()
+                            .examStage(stage)
+                            .year(finalYear)
+                            .build());
+                });
 
         // Create Default Marking Policy if not exists
         if (markingPolicyRepository.findByExamYearIdAndSectionIsNull(examYear.getId()).isEmpty()) {
-            double positive = examCode.equalsIgnoreCase("GATE") ? 2.0 : 1.0;
-            double negative = examCode.equalsIgnoreCase("GATE") ? 0.66 : 0.0;
+            double positive = examCode.equalsIgnoreCase(ExamConstants.GATE) ? ExamConstants.GATE_POSITIVE_MARK
+                    : ExamConstants.DEFAULT_POSITIVE_MARK;
+            double negative = examCode.equalsIgnoreCase(ExamConstants.GATE) ? ExamConstants.GATE_NEGATIVE_MARK
+                    : ExamConstants.DEFAULT_NEGATIVE_MARK;
 
+            log.info("Creating default marking policy for examYearId={}: correct={}, negative={}",
+                    examYear.getId(), positive, negative);
             markingPolicyRepository.save(MarkingPolicy.builder()
                     .examYear(examYear)
                     .correctMarks(positive)
@@ -99,13 +127,17 @@ public class QuestionPaperParserService {
 
         final String finalShiftName = shiftName;
         Shift shift = shiftRepository.findByExamYearIdAndName(examYear.getId(), shiftName)
-                .orElseGet(() -> shiftRepository.save(Shift.builder()
-                        .examYear(examYear)
-                        .name(finalShiftName)
-                        .build()));
+                .orElseGet(() -> {
+                    log.info("Creating new shift: {} for examYearId={}", finalShiftName, examYear.getId());
+                    return shiftRepository.save(Shift.builder()
+                            .examYear(examYear)
+                            .name(finalShiftName)
+                            .build());
+                });
 
         // 3. Delegate to original seeding logic
         parseAndSeedShift(shift.getId(), questionPaper, answerKey);
+        log.info(LogConstants.END_METHOD, "universalIngest");
     }
 
     /**
@@ -114,15 +146,16 @@ public class QuestionPaperParserService {
     @Transactional
     public void parseAndSeedShift(Long shiftId, MultipartFile questionPaper, MultipartFile answerKey)
             throws IOException {
-        Shift shift = shiftService.findShiftById(shiftId);
+        log.info(LogConstants.START_PROCESS, "parseAndSeedShift", shiftId);
+        Shift shift = examManagementService.findShiftById(shiftId);
 
         // 1. Parse Answer Key first to get the mapping of Q.No -> Type, Section, Key
         Map<Integer, AnswerKeyData> answerKeyMap = parseAnswerKey(answerKey);
-        log.info("Parsed {} answer keys from PDF", answerKeyMap.size());
+        log.info("Parsed {} answer key entries from PDF for shiftId={}", answerKeyMap.size(), shiftId);
 
         // 2. Parse Question Paper to get the mapping of Q.No -> Text
         Map<Integer, String> questionTextMap = parseQuestionPaper(questionPaper);
-        log.info("Parsed {} question texts from PDF", questionTextMap.size());
+        log.info("Parsed {} question text entries from PDF for shiftId={}", questionTextMap.size(), shiftId);
 
         // 3. Create Sections if they don't exist, and create Questions
         Map<String, Section> sectionCache = new HashMap<>();
@@ -133,21 +166,24 @@ public class QuestionPaperParserService {
             String qText = questionTextMap.getOrDefault(qNum, "Text not found in PDF for Q." + qNum);
             String qHash = HashUtil.generateHash(qText);
 
-            // Get or create Section
+            // Get or create Section - Optimized with cache
             Section section = sectionCache.computeIfAbsent(akData.sectionName, name -> {
-                List<Section> existing = sectionService.getSectionsByShiftId(shiftId);
-                return existing.stream()
+                return shift.getSections().stream()
                         .filter(s -> s.getName().equalsIgnoreCase(name))
                         .findFirst()
                         .orElseGet(() -> {
-                            var req = com.evalx.dto.request.CreateSectionRequest.builder()
-                                    .shiftId(shiftId)
+                            log.info("Creating new section: {} for shiftId={}", name, shiftId);
+                            Section s = Section.builder()
+                                    .shift(shift)
                                     .name(name)
-                                    .orderIndex(existing.size() + 1)
+                                    .orderIndex(shift.getSections().size() + 1)
                                     .build();
-                            return sectionService.createSection(req);
+                            shift.getSections().add(s);
+                            return s;
                         });
             });
+
+            log.debug("Processing Q.{} for sectionId={} with hash={}", qNum, section.getId(), qHash);
 
             // Create Question
             Question question = Question.builder()
@@ -168,9 +204,11 @@ public class QuestionPaperParserService {
             answerKeyRepository.save(ak);
             question.setAnswerKey(ak);
         }
+        log.info(LogConstants.COMPLETED_PROCESS, "parseAndSeedShift", shiftId);
     }
 
     private Map<Integer, AnswerKeyData> parseAnswerKey(MultipartFile file) throws IOException {
+        log.debug("Starting Answer Key parsing from PDF: {}", file.getOriginalFilename());
         Map<Integer, AnswerKeyData> map = new LinkedHashMap<>();
         try (PDDocument document = Loader.loadPDF(file.getBytes())) {
             PDFTextStripper stripper = new PDFTextStripper();
@@ -178,8 +216,6 @@ public class QuestionPaperParserService {
 
             // Regex for GATE Answer Key: (Q. No) (Type) (Section) (Key/Range)
             // Example: 1 MCQ GA A
-            // Example: 25 MSQ CS-2 A;B
-            // Example: 30 NAT CS-2 3 to 3
             Pattern p = Pattern.compile("(\\d+)\\s+(MCQ|MSQ|NAT)\\s+([\\w-]+)\\s+(.+)");
             Matcher m = p.matcher(text);
 
@@ -188,10 +224,6 @@ public class QuestionPaperParserService {
                 QuestionType type = QuestionType.valueOf(m.group(2).toUpperCase());
                 String sectionName = m.group(3);
                 String key = m.group(4).trim();
-
-                // Sometimes "Page X of Y" or other headers might match partially if regex is
-                // too loose,
-                // but this pattern is specific enough for the data rows.
                 map.put(qNum, new AnswerKeyData(type, sectionName, key));
             }
         }
@@ -199,22 +231,13 @@ public class QuestionPaperParserService {
     }
 
     private Map<Integer, String> parseQuestionPaper(MultipartFile file) throws IOException {
+        log.debug("Starting Question Paper parsing from PDF: {}", file.getOriginalFilename());
         Map<Integer, String> map = new LinkedHashMap<>();
         try (PDDocument document = Loader.loadPDF(file.getBytes())) {
             PDFTextStripper stripper = new PDFTextStripper();
             String text = stripper.getText(document);
 
-            // GATE Question Paper format:
-            // Q.1 Expedite, Hasten, Hurry, __________
-            // ...
-            // (A) Accelerate
-            // (B) Retard
-
-            // Split by "Q.[number]" patterns
-            String[] parts = text.split("Q\\.(\\d+)");
-            // The split will give us index 1 as text after Q.1, index 2 after Q.2, etc.
-            // But we need the number too. Let's use Matcher.
-
+            // Split by "Q.[number]" patterns using regex for robustness
             Pattern p = Pattern.compile("Q\\.(\\d+)(.*?)(?=Q\\.\\d+|$)", Pattern.DOTALL);
             Matcher m = p.matcher(text);
 
@@ -222,7 +245,7 @@ public class QuestionPaperParserService {
                 int qNum = Integer.parseInt(m.group(1));
                 String content = m.group(2).trim();
                 // Clean up "Organizing Institute..." footers if present in the chunk
-                content = content.replaceAll("(?i)Organizing Institute:.*Page \\d+ of \\d+", "").trim();
+                content = content.replaceAll(FOOTER_REGEX, "").trim();
                 map.put(qNum, content);
             }
         }
