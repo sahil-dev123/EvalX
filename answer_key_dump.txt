@@ -1,0 +1,77 @@
+ 
+ 
+Answer Key for Computer Science & Information Technology (CS-2) 
+Q. No. Q. Type Section Key/Range 
+1 MCQ GA A 
+2 MCQ GA C 
+3 MCQ GA A 
+4 MCQ GA A 
+5 MCQ GA C 
+6 MCQ GA A 
+7 MCQ GA A 
+8 MCQ GA A 
+9 MCQ GA B 
+10 MCQ GA C 
+11 MCQ CS-2 A 
+12 MCQ CS-2 A 
+13 MCQ CS-2 D 
+14 MCQ CS-2 B 
+15 MCQ CS-2 C 
+16 MCQ CS-2 B 
+17 MCQ CS-2 C 
+18 MCQ CS-2 C 
+19 MCQ CS-2 A 
+20 MCQ CS-2 A 
+21 MCQ CS-2 B 
+22 MCQ CS-2 C 
+23 MCQ CS-2 B 
+24 MCQ CS-2 A 
+25 MSQ CS-2 A;B 
+26 MSQ CS-2 A;B;C 
+27 MSQ CS-2 A;C 
+28 MSQ CS-2 B;D 
+29 MSQ CS-2 B;C 
+30 NAT CS-2 3 to 3 
+31 NAT CS-2 24 to 24 
+32 NAT CS-2 3 to 3 
+33 NAT CS-2 4094 to 4094 
+34 NAT CS-2 -60.25 to -60.25 
+35 NAT CS-2 13 to 13 
+36 MCQ CS-2 C 
+Page 1 of 2 
+ 
+ 
+Q. No. Q. Type Section Key/Range 
+37 MCQ CS-2 A 
+38 MCQ CS-2 A 
+39 MCQ CS-2 A 
+40 MCQ CS-2 B 
+41 MCQ CS-2 D 
+42 MCQ CS-2 D 
+43 MCQ CS-2 D 
+44 MCQ CS-2 B 
+45 MCQ CS-2 A 
+46 MCQ CS-2 A 
+47 MSQ CS-2 C;D 
+48 MSQ CS-2 A;C;D 
+49 MSQ CS-2 A;C 
+50 MSQ CS-2 A;B 
+51 MSQ CS-2 A;B;C 
+52 MSQ CS-2 A;B 
+53 NAT CS-2 16417 to 16417 
+54 NAT CS-2 1536 to 1536 
+55 NAT CS-2 3 to 3 
+56 NAT CS-2 128 to 128 
+57 NAT CS-2 2.30 to 2.40 
+58 NAT CS-2 4 to 4 
+59 NAT CS-2 6 to 6 
+60 NAT CS-2 9 to 9 
+61 NAT CS-2 1 to 1 
+62 NAT CS-2 48 to 48 
+63 NAT CS-2 0.5 to 0.5 
+64 NAT CS-2 40 to 40 
+65 NAT CS-2 30 to 30 
+ 
+ 
+Page 2 of 2 
+ 

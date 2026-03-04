@@ -1,0 +1,29 @@
+# Build folders
+/build
+/.gradle
+/bin
+/out
+
+# IDE files
+/.idea
+.vscode
+*.iml
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Java compiled files
+*.class
+
+# Gradle wrapper cache
+.gradle/
+
+# Node modules (frontend)
+node_modules/
+
+# Environment files
+.env
