@@ -92,20 +92,9 @@ public class QuestionPaperParserService {
 
             markingPolicyRepository.save(MarkingPolicy.builder()
                     .examYear(examYear)
-                    .questionType(QuestionType.MCQ)
-                    .positiveMarks(positive)
+                    .correctMarks(positive)
                     .negativeMarks(negative)
                     .build());
-
-            // Also add NAT for GATE
-            if (examCode.equalsIgnoreCase("GATE")) {
-                markingPolicyRepository.save(MarkingPolicy.builder()
-                        .examYear(examYear)
-                        .questionType(QuestionType.NAT)
-                        .positiveMarks(2.0)
-                        .negativeMarks(0.0)
-                        .build());
-            }
         }
 
         final String finalShiftName = shiftName;
