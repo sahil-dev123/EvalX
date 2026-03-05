@@ -55,7 +55,7 @@ spring:
       on-profile: postgres
 
   datasource:
-    url: jdbc:postgresql://${DB_HOST}:5432/${DB_NAME}?sslmode=require
+    url: jdbc:postgresql://${DB_HOST}:6543/${DB_NAME}?sslmode=require
     driver-class-name: org.postgresql.Driver
     username: ${DB_USER}
     password: ${DB_PASSWORD}
