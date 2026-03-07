@@ -2,12 +2,16 @@ package com.evalx.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-import java.util.ArrayList;
-import java.util.List;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "exam_years")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Table(name = "exam_year_details")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class ExamYear {
 
     @Id
@@ -15,15 +19,12 @@ public class ExamYear {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "exam_stage_id", nullable = false)
-    private ExamStage examStage;
+    @JoinColumn(name = "stage_id")
+    @JsonIgnore
+    private ExamStage stage;
 
     @Column(name = "exam_year", nullable = false)
     private Integer year;
-
-    @Column(name = "total_candidates")
-    @Builder.Default
-    private Long totalCandidates = 0L;
 
     @Column(name = "total_marks")
     private Double totalMarks;
@@ -31,11 +32,11 @@ public class ExamYear {
     @Column(name = "time_minutes")
     private Integer timeMinutes;
 
-    @OneToMany(mappedBy = "examYear", cascade = CascadeType.ALL, orphanRemoval = true)
-    @Builder.Default
-    private List<Shift> shifts = new ArrayList<>();
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "marking_policy_id")
+    private MarkingPolicy markingPolicy;
 
-    @OneToMany(mappedBy = "examYear", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Column(name = "created_at")
     @Builder.Default
-    private List<MarkingPolicy> markingPolicies = new ArrayList<>();
+    private LocalDateTime createdAt = LocalDateTime.now();
 }

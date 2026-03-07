@@ -18,8 +18,9 @@ const state = {
   uploadedFile: null,
   result: null,
   loading: false,
+  dropdownStages: [],
+  dropdownYears: [],
   adminSection: 'magic-ingest',
-  adminAdvancedOpen: false,
   adminToken: localStorage.getItem('evalx_admin_token') || null,
   adminExams: [],
   adminStages: [],
@@ -157,31 +158,23 @@ function renderHome() {
         </div>
       </div>
     </div>
-    <div class="section">
-      <div class="container">
-        <h2 class="mb-3">Select Exam</h2>
-        <div class="grid grid-3 exam-grid" id="exam-grid">
-          ${state.loading ? '<div class="loading-overlay"><div class="spinner"></div><p>Loading exams...</p></div>' :
-      state.exams.length === 0 ? '<div class="empty-state"><div class="icon">📋</div><p>No exams configured yet. Go to Admin to create one.</p></div>' :
-        state.exams.map(e => `
-              <div class="card exam-card fade-in" onclick="selectExam(${e.id})">
-                <div class="exam-icon">📝</div>
-                <h3>${e.name}</h3>
-                <p>${e.description || 'Click to view available stages'}</p>
-                <span class="tag">${e.stages?.length || 0} Stage${(e.stages?.length || 0) !== 1 ? 's' : ''}</span>
-              </div>
-            `).join('')}
-        </div>
-      </div>
-    </div>
     <div class="section" id="universal-upload-section">
       <div class="container">
         <div class="card premium-card fade-in">
-          <div class="flex items-center gap-2 mb-2">
-            <span class="badge badge-success">Magic Auto-Detect</span>
-            <h2>Universal Response Upload</h2>
+          <div class="flex justify-between items-center mb-3">
+            <div class="flex items-center gap-2">
+              <span class="badge badge-success">Magic Auto-Detect</span>
+              <h2>Predict Your Rank</h2>
+            </div>
+            <div style="min-width: 200px;">
+              <select class="form-input" id="universal-exam-select" style="background: rgba(255,255,255,0.08); border-color: var(--accent-glow);">
+                <option value="">-- Detect Exam --</option>
+                ${state.exams.map(e => `<option value="${e.id}">${e.name}</option>`).join('')}
+              </select>
+            </div>
           </div>
-          <p class="text-secondary mb-3">Skip the manual selection! Drag and drop your GATE, SSC, or CAT response sheet PDF here. Our AI-ready engine will automatically detect your exam, shift, and year.</p>
+          
+          <p class="text-secondary mb-4">Upload your response sheet PDF. Our engine will automatically detect your shift and year to calculate your score instantly.</p>
           
           <div class="upload-zone" id="universal-upload-zone" 
                ondragover="event.preventDefault(); this.classList.add('dragover')"
@@ -194,7 +187,11 @@ function renderHome() {
             <p class="text-muted">Supports PDF, CSV, and JSON</p>
             <div id="universal-file-info" class="file-info hidden"></div>
           </div>
-          <button class="btn btn-primary btn-lg mt-3 w-100" id="universal-upload-btn" onclick="uploadUniversalResponse()" disabled>⚡ Calculate My Score</button>
+          <div class="mt-3 text-left">
+            <label style="font-size:0.8rem;font-weight:600;">Or provide a URL:</label>
+            <input type="text" id="universal-url-input" class="form-input mt-1" placeholder="https://example.com/response.pdf" oninput="handleUniversalUrl()">
+          </div>
+          <button class="btn btn-primary btn-lg mt-3 w-100 justify-center" id="universal-upload-btn" onclick="uploadUniversalResponse()" disabled>⚡ Calculate My Score</button>
         </div>
       </div>
     </div>
@@ -224,19 +221,29 @@ function showUniversalFileInfo() {
   document.getElementById('universal-upload-btn').disabled = false;
 }
 
-async function uploadUniversalResponse() {
-  if (!universalFile) return;
-  state.loading = true;
-  render();
-  const originalBtn = document.getElementById('universal-upload-btn');
-  if (originalBtn) {
-    originalBtn.disabled = true;
-    originalBtn.textContent = '⏳ Processing your response...';
+function handleUniversalUrl() {
+  const url = document.getElementById('universal-url-input').value.trim();
+  if (url || universalFile) {
+    document.getElementById('universal-upload-btn').disabled = false;
+  } else {
+    document.getElementById('universal-upload-btn').disabled = true;
   }
+}
+
+async function uploadUniversalResponse() {
+  const url = document.getElementById('universal-url-input')?.value.trim();
+  if (!universalFile && !url) return;
+  state.loading = true; render();
   try {
     const formData = new FormData();
-    formData.append('file', universalFile);
-    const result = await api('POST', '/api/evaluation/evaluate', formData, true);
+    if (universalFile) formData.append('file', universalFile);
+    if (url) formData.append('fileUrl', url);
+
+    const examId = document.getElementById('universal-exam-select')?.value;
+    let query = '';
+    if (examId) query = `?examId=${examId}`;
+
+    const result = await api('POST', `/api/evaluation/evaluate${query}`, formData, true);
     state.result = result;
     navigate('result');
     toast('✓ Evaluation Complete!', 'success');
@@ -252,32 +259,59 @@ async function uploadUniversalResponse() {
 }
 
 async function loadExams() {
-  if (state.exams.length > 0) return;
+  if (state.loading) return;
   state.loading = true;
-  document.getElementById('exam-grid').innerHTML = '<div class="loading-overlay"><div class="spinner"></div><p>Loading exams...</p></div>';
   try {
     state.exams = await api('GET', '/api/exams');
     state.loading = false;
-    document.getElementById('exam-grid').innerHTML = state.exams.length === 0 ?
-      '<div class="empty-state"><div class="icon">📋</div><p>No exams yet. Use Admin to create one.</p></div>' :
-      state.exams.map(e => `
-        <div class="card exam-card fade-in" onclick="selectExam(${e.id})">
-          <div class="exam-icon">📝</div>
-          <h3>${e.name}</h3>
-          <p>${e.description || 'Click to view available stages'}</p>
-          <span class="tag">${e.stages?.length || 0} Stage${(e.stages?.length || 0) !== 1 ? 's' : ''}</span>
-        </div>
-      `).join('');
-  } catch (e) { toast('Failed to load exams: ' + e.message, 'error'); state.loading = false; }
+
+    // Update the universal dropdown if it exists
+    const select = document.getElementById('universal-exam-select');
+    if (select) {
+      const currentVal = select.value;
+      select.innerHTML = '<option value="">-- Detect Exam --</option>' +
+        state.exams.map(e => `<option value="${e.id}" ${e.id == currentVal ? 'selected' : ''}>${e.name}</option>`).join('');
+    }
+  } catch (e) {
+    toast('Failed to load exams: ' + e.message, 'error');
+    state.loading = false;
+  }
 }
 
-async function selectExam(id) {
+async function handleExamSelect(id) {
+  if (!id) {
+    state.selectedExam = null; state.dropdownStages = []; state.selectedStage = null;
+    state.dropdownYears = []; state.selectedYear = null;
+    render(); return;
+  }
   try {
-    const exam = state.exams.find(e => e.id === id);
-    state.selectedExam = exam;
-    state.stages = await api('GET', `/api/exam-stages/by-exam/${id}`);
-    navigate('stages');
-  } catch (e) { toast('Error: ' + e.message, 'error'); }
+    state.selectedExam = state.exams.find(e => e.id == id);
+    state.dropdownStages = await api('GET', `/api/exam-stages/by-exam/${id}`);
+    state.selectedStage = null; state.dropdownYears = []; state.selectedYear = null;
+    render();
+  } catch (e) { toast('Error loading stages: ' + e.message, 'error'); }
+}
+
+async function handleStageSelect(id) {
+  if (!id) {
+    state.selectedStage = null; state.dropdownYears = []; state.selectedYear = null;
+    render(); return;
+  }
+  try {
+    state.selectedStage = state.dropdownStages.find(s => s.id == id);
+    state.dropdownYears = await api('GET', `/api/exam-years/by-stage/${id}`);
+    state.selectedYear = null;
+    render();
+  } catch (e) { toast('Error loading years: ' + e.message, 'error'); }
+}
+
+function handleYearSelect(id) {
+  if (!id) {
+    state.selectedYear = null;
+    render(); return;
+  }
+  state.selectedYear = state.dropdownYears.find(y => y.id == id);
+  render();
 }
 
 // ── Stage Selection ────────────────────────────────────────────────────────
@@ -406,6 +440,11 @@ function renderUpload() {
             <div id="file-info" class="file-info hidden"></div>
           </div>
 
+          <div class="mt-3 text-left">
+            <label style="font-size:0.8rem;font-weight:600;">Or provide a URL:</label>
+            <input type="text" id="file-url-input" class="form-input mt-1" placeholder="https://example.com/response.pdf" oninput="handleFileUrl()">
+          </div>
+
           <!-- Submit -->
           <button class="btn btn-primary btn-lg w-full mt-3" id="submit-btn" onclick="submitResponse()" disabled>
             ⚡ Evaluate My Answers
@@ -445,14 +484,25 @@ function processFile(file) {
   toast('File selected: ' + file.name, 'success');
 }
 
+function handleFileUrl() {
+  const url = document.getElementById('file-url-input').value.trim();
+  if (url || state.uploadedFile) {
+    document.getElementById('submit-btn').disabled = false;
+  } else {
+    document.getElementById('submit-btn').disabled = true;
+  }
+}
+
 async function submitResponse() {
-  if (!state.uploadedFile) return;
+  const url = document.getElementById('file-url-input')?.value.trim();
+  if (!state.uploadedFile && !url) return;
   document.getElementById('submit-btn').disabled = true;
   document.getElementById('upload-loading').classList.remove('hidden');
 
   try {
     const formData = new FormData();
-    formData.append('file', state.uploadedFile);
+    if (state.uploadedFile) formData.append('file', state.uploadedFile);
+    if (url) formData.append('fileUrl', url);
     const res = await fetch(`${API}/api/evaluation/evaluate?examYearId=${state.selectedYear.id}`, {
       method: 'POST', body: formData
     });
@@ -480,7 +530,7 @@ function renderResult() {
       <div class="result-hero">
         <div class="container">
           <p class="text-secondary">${r.examName || state.selectedExam?.name || 'Exam'} — ${r.stageName || state.selectedStage?.name || 'Stage'} — ${r.year || state.selectedYear?.year || 'Year'}</p>
-          <div class="score-display text-gradient">${r.totalScore} / ${r.maxScore}</div>
+          <div class="result-score mb-2">${r.totalScore.toFixed(2)} / ${r.maxScore}</div>
           <p class="score-sub">${r.shiftName ? r.shiftName : 'Your Score'}</p>
         </div>
       </div>
@@ -497,9 +547,9 @@ function renderResult() {
 
           <!-- Rank Prediction -->
           <div class="grid grid-3 mb-4">
-            <div class="card stat-card accent"><div class="stat-value">${r.percentile || '—'}%</div><div class="stat-label">Predicted Percentile</div></div>
-            <div class="card stat-card accent"><div class="stat-value">${r.estimatedRank ? r.estimatedRank.toLocaleString() : '—'}</div><div class="stat-label">Estimated Rank</div></div>
-            <div class="card stat-card accent"><div class="stat-value">${r.totalCandidates ? r.totalCandidates.toLocaleString() : '—'}</div><div class="stat-label">Total Candidates</div></div>
+            <div class="card stat-card accent"><div class="stat-value">${r.percentile > 0 ? r.percentile + '%' : '—'}</div><div class="stat-label">Predicted Percentile</div></div>
+            <div class="card stat-card accent"><div class="stat-value">${r.estimatedRank > 0 ? r.estimatedRank.toLocaleString() : '—'}</div><div class="stat-label">Estimated Rank</div></div>
+            <div class="card stat-card accent"><div class="stat-value">${r.totalCandidates > 0 ? r.totalCandidates.toLocaleString() : '—'}</div><div class="stat-label">Total Candidates</div></div>
           </div>
 
           <!-- Charts row -->
@@ -1345,21 +1395,6 @@ function renderAdmin() {
         <button class="menu-item ${state.adminSection === 'dashboard' ? 'active' : ''}" onclick="adminNav('dashboard')">
           <span>📊</span> Stats
         </button>
-        
-        <div class="menu-label flex justify-between items-center" style="cursor:pointer" onclick="toggleAdminAdvanced()">
-          <span>⚙️ Advanced Settings</span>
-          <span>${state.adminAdvancedOpen ? '▾' : '▸'}</span>
-        </div>
-        
-        <div id="admin-advanced-menu" class="${state.adminAdvancedOpen ? '' : 'hidden'}">
-          ${['exams', 'stages', 'sections', 'questions', 'marking', 'candidates'].map(s =>
-    `<button class="menu-item ${state.adminSection === s ? 'active' : ''}" onclick="adminNav('${s}')">
-              <span>${{ 'exams': '📋', 'stages': '📑', 'sections': '📁', 'questions': '❓', 'marking': '⚖️', 'candidates': '👥' }[s]}</span>
-              ${s.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ')}
-            </button>`
-  ).join('')}
-        </div>
-        
         <div style="margin-top:auto; padding-top:24px;">
            <button class="menu-item" style="color:var(--danger)" onclick="adminLogout()"><span>🚪</span> Logout</button>
         </div>
@@ -1380,19 +1415,8 @@ function renderAdminSection() {
   switch (state.adminSection) {
     case 'magic-ingest': return renderAdminPdfIngest();
     case 'dashboard': return renderAdminDashboard();
-    case 'exams': return renderAdminExams();
-    case 'stages': return renderAdminStages();
-    case 'sections': return renderAdminSections();
-    case 'questions': return renderAdminQuestions();
-    case 'marking': return renderAdminMarking();
-    case 'candidates': return renderAdminCandidates();
     default: return renderAdminPdfIngest();
   }
-}
-
-function toggleAdminAdvanced() {
-  state.adminAdvancedOpen = !state.adminAdvancedOpen;
-  render();
 }
 
 function renderAdminPdfIngest() {
@@ -1415,6 +1439,10 @@ function renderAdminPdfIngest() {
             <div class="icon" style="font-size:2rem">📄</div>
             <small class="text-muted">Select Master Paper...</small>
           </div>
+          <div class="mt-2 text-left">
+            <label style="font-size:0.8rem;font-weight:600;">Or URL:</label>
+            <input type="text" id="main-ingest-qp-url" class="form-input mt-1" placeholder="https://...">
+          </div>
         </div>
         <div class="form-group">
           <label>2. Official Answer Key PDF</label>
@@ -1422,6 +1450,10 @@ function renderAdminPdfIngest() {
             <input type="file" id="main-ingest-ak" accept=".pdf" style="display:none" onchange="this.parentElement.querySelector('small').textContent = '✓ ' + this.files[0].name">
             <div class="icon" style="font-size:2rem">🔑</div>
             <small class="text-muted">Select Answer Key...</small>
+          </div>
+          <div class="mt-2 text-left">
+            <label style="font-size:0.8rem;font-weight:600;">Or URL:</label>
+            <input type="text" id="main-ingest-ak-url" class="form-input mt-1" placeholder="https://...">
           </div>
         </div>
       </div>
@@ -1436,17 +1468,21 @@ function renderAdminPdfIngest() {
 
 async function ingestPdfsDirectly() {
   const qpFile = document.getElementById('main-ingest-qp').files[0];
+  const qpUrl = document.getElementById('main-ingest-qp-url').value.trim();
   const akFile = document.getElementById('main-ingest-ak').files[0];
+  const akUrl = document.getElementById('main-ingest-ak-url').value.trim();
 
-  if (!qpFile || !akFile) return toast('Both PDF files are required', 'error');
+  if (!(qpFile || qpUrl) || !(akFile || akUrl)) return toast('Both Question Paper and Answer Key are required (File or URL)', 'error');
 
   const btn = document.getElementById('main-ingest-btn');
   btn.disabled = true; btn.textContent = 'Parsing PDFs & Creating Hierarchy...';
 
   try {
     const formData = new FormData();
-    formData.append('questionPaper', qpFile);
-    formData.append('answerKey', akFile);
+    if (qpFile) formData.append('questionPaper', qpFile);
+    if (qpUrl) formData.append('questionPaperUrl', qpUrl);
+    if (akFile) formData.append('answerKey', akFile);
+    if (akUrl) formData.append('answerKeyUrl', akUrl);
     await api('POST', `/api/admin/ingest`, formData, true);
     toast('Magic! Exam hierarchy created and seeded successfully.', 'success');
   } catch (e) {
@@ -1458,162 +1494,35 @@ async function ingestPdfsDirectly() {
 }
 
 function renderAdminDashboard() {
-  loadAdminExams();
+  loadAdminStats();
   return `
-    <div class="fade-in">
-      <div style="margin-bottom:32px;">
-        <h2 class="mb-1">Admin Dashboard</h2>
-        <p class="text-secondary">System overview and evaluation metrics</p>
-      </div>
-
-      <!-- Key Metrics -->
-      <div class="grid grid-4 mb-4">
-        <div class="card stat-card accent">
-          <div class="stat-value" id="admin-exam-count">—</div>
-          <div class="stat-label">Active Exams</div>
-        </div>
-        <div class="card stat-card info">
-          <div class="stat-value">12</div>
-          <div class="stat-label">Evaluators</div>
-        </div>
-        <div class="card stat-card success">
-          <div class="stat-value">347</div>
-          <div class="stat-label">Responses</div>
-        </div>
-        <div class="card stat-card warning">
-          <div class="stat-value">73.2%</div>
-          <div class="stat-label">Evaluated</div>
-        </div>
-      </div>
-
-      <!-- Overview Cards -->
-      <div class="grid grid-2 mb-4">
-        <div class="card">
-          <h3 class="mb-3">Evaluation Status</h3>
-          <div style="display:flex; flex-direction:column; gap:16px;">
-            <div>
-              <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                <span class="text-secondary" style="font-size:0.85rem;">Completed</span>
-                <span style="font-weight:600; color:var(--success);">254 (73%)</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill good" style="width:73%"></div>
-              </div>
-            </div>
-            <div>
-              <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                <span class="text-secondary" style="font-size:0.85rem;">In Progress</span>
-                <span style="font-weight:600; color:var(--info);">65 (19%)</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" style="background:var(--info); width:19%"></div>
-              </div>
-            </div>
-            <div>
-              <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                <span class="text-secondary" style="font-size:0.85rem;">Pending</span>
-                <span style="font-weight:600; color:var(--warning);">28 (8%)</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill avg" style="width:8%"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3 class="mb-3">Performance Snapshot</h3>
-          <table class="results-table" style="margin:0;">
-            <tr>
-              <td class="text-secondary" style="font-size:0.85rem;">Average Score</td>
-              <td style="text-align:right; font-weight:600; color:var(--accent-light);">72.4/100</td>
-            </tr>
-            <tr>
-              <td class="text-secondary" style="font-size:0.85rem;">Highest Score</td>
-              <td style="text-align:right; font-weight:600; color:var(--success);">98/100</td>
-            </tr>
-            <tr>
-              <td class="text-secondary" style="font-size:0.85rem;">Lowest Score</td>
-              <td style="text-align:right; font-weight:600; color:var(--danger);">15/100</td>
-            </tr>
-            <tr>
-              <td class="text-secondary" style="font-size:0.85rem;">Median Score</td>
-              <td style="text-align:right; font-weight:600;">71/100</td>
-            </tr>
-          </table>
-        </div>
-      </div>
-
-      <!-- Quick Actions -->
-      <div class="card premium-card mb-4">
-        <h3 class="mb-3">⚡ Quick Setup</h3>
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap:16px;">
-          <button onclick="adminNav('exams')" style="padding:16px; background:var(--bg-glass); border:1px solid var(--border); border-radius:10px; cursor:pointer; transition:all 0.2s; text-align:left; color:var(--text-primary);" onmouseover="this.style.borderColor='var(--border-active)'" onmouseout="this.style.borderColor='var(--border)'">
-            <div style="font-weight:600; margin-bottom:4px;">📋 Create Exam</div>
-            <div style="font-size:0.8rem; color:var(--text-secondary);">Set up a new exam</div>
-          </button>
-          <button onclick="adminNav('stages')" style="padding:16px; background:var(--bg-glass); border:1px solid var(--border); border-radius:10px; cursor:pointer; transition:all 0.2s; text-align:left; color:var(--text-primary);" onmouseover="this.style.borderColor='var(--border-active)'" onmouseout="this.style.borderColor='var(--border)'">
-            <div style="font-weight:600; margin-bottom:4px;">📑 Add Stages</div>
-            <div style="font-size:0.8rem; color:var(--text-secondary);">Create exam stages</div>
-          </button>
-          <button onclick="adminNav('questions')" style="padding:16px; background:var(--bg-glass); border:1px solid var(--border); border-radius:10px; cursor:pointer; transition:all 0.2s; text-align:left; color:var(--text-primary);" onmouseover="this.style.borderColor='var(--border-active)'" onmouseout="this.style.borderColor='var(--border)'">
-            <div style="font-weight:600; margin-bottom:4px;">❓ Upload Questions</div>
-            <div style="font-size:0.8rem; color:var(--text-secondary);">Seed questions & answers</div>
-          </button>
-          <button onclick="adminNav('magic-ingest')" style="padding:16px; background:var(--bg-glass); border:1px solid var(--border); border-radius:10px; cursor:pointer; transition:all 0.2s; text-align:left; color:var(--text-primary);" onmouseover="this.style.borderColor='var(--border-active)'" onmouseout="this.style.borderColor='var(--border)'">
-            <div style="font-weight:600; margin-bottom:4px;">🚀 Magic PDF Ingest</div>
-            <div style="font-size:0.8rem; color:var(--text-secondary);">Auto-ingest from PDFs</div>
-          </button>
-          <button onclick="adminNav('marking')" style="padding:16px; background:var(--bg-glass); border:1px solid var(--border); border-radius:10px; cursor:pointer; transition:all 0.2s; text-align:left; color:var(--text-primary);" onmouseover="this.style.borderColor='var(--border-active)'" onmouseout="this.style.borderColor='var(--border)'">
-            <div style="font-weight:600; margin-bottom:4px;">⚖️ Marking Scheme</div>
-            <div style="font-size:0.8rem; color:var(--text-secondary);">Set marking rules</div>
-          </button>
-          <button onclick="adminNav('candidates')" style="padding:16px; background:var(--bg-glass); border:1px solid var(--border); border-radius:10px; cursor:pointer; transition:all 0.2s; text-align:left; color:var(--text-primary);" onmouseover="this.style.borderColor='var(--border-active)'" onmouseout="this.style.borderColor='var(--border)'">
-            <div style="font-weight:600; margin-bottom:4px;">👥 Candidate Count</div>
-            <div style="font-size:0.8rem; color:var(--text-secondary);">Update candidate pool</div>
-          </button>
-        </div>
-      </div>
-
-      <!-- Recent Activity -->
-      <div class="card">
-        <h3 class="mb-2">📊 Recent Evaluations</h3>
-        <table class="results-table">
-          <thead>
-            <tr>
-              <th>Student</th>
-              <th>Exam</th>
-              <th>Evaluator</th>
-              <th>Time</th>
-              <th>Score</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>Rajesh Kumar</strong></td>
-              <td>GATE 2024</td>
-              <td>Priya</td>
-              <td style="font-size:0.85rem; color:var(--text-secondary);">5 min ago</td>
-              <td style="font-weight:600; color:var(--success);">82/100</td>
-            </tr>
-            <tr>
-              <td><strong>Amit Patel</strong></td>
-              <td>SSC CGL</td>
-              <td>Arjun</td>
-              <td style="font-size:0.85rem; color:var(--text-secondary);">12 min ago</td>
-              <td style="font-weight:600; color:var(--success);">71/100</td>
-            </tr>
-            <tr>
-              <td><strong>Neha Sharma</strong></td>
-              <td>CAT 2024</td>
-              <td>Priya</td>
-              <td style="font-size:0.85rem; color:var(--text-secondary);">28 min ago</td>
-              <td style="font-weight:600; color:var(--danger);">45/100</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    <h2 class="mb-3">Admin Dashboard</h2>
+    <div class="grid grid-4 mb-4">
+      <div class="card stat-card accent"><div class="stat-value" id="admin-exam-count">—</div><div class="stat-label">Exams</div></div>
+      <div class="card stat-card info"><div class="stat-value" id="admin-stage-count">—</div><div class="stat-label">Stages</div></div>
+      <div class="card stat-card success"><div class="stat-value" id="admin-question-count">—</div><div class="stat-label">Questions</div></div>
+      <div class="card stat-card warning"><div class="stat-value" id="admin-evaluation-count">—</div><div class="stat-label">Evaluations</div></div>
+    </div>
+    <div class="card">
+      <h3 class="mb-2">Quick Start Guide</h3>
+      <table class="results-table">
+        <tr><td>1.</td><td><strong>Magic Ingest:</strong> Upload Master PDFs or Provide URLs to auto-create the exam structure.</td><td><button class="btn btn-sm btn-primary" onclick="adminNav('magic-ingest')">🚀 Start PDF Ingest</button></td></tr>
+        <tr><td>2.</td><td><strong>Review Stats:</strong> Check this dashboard to verify the parsed questions and exams.</td><td><button class="btn btn-sm btn-secondary" onclick="adminNav('dashboard')">Go →</button></td></tr>
+        <tr><td>3.</td><td><strong>Evaluate:</strong> Share the public portal with students to upload their response sheets.</td><td><button class="btn btn-sm btn-secondary" onclick="navigate('upload')">Go →</button></td></tr>
+      </table>
     </div>`;
+}
+
+async function loadAdminStats() {
+  try {
+    const stats = await api('GET', '/api/admin/stats');
+    if (stats) {
+      document.getElementById('admin-exam-count').textContent = stats.totalExams || 0;
+      document.getElementById('admin-stage-count').textContent = stats.totalStages || 0;
+      document.getElementById('admin-question-count').textContent = stats.totalQuestions || 0;
+      document.getElementById('admin-evaluation-count').textContent = stats.totalEvaluations || 0;
+    }
+  } catch (e) { console.error('Error loading admin stats:', e); }
 }
 
 // ── Admin CRUD Panels ──────────────────────────────────────────────────────
@@ -1781,10 +1690,14 @@ function renderAdminQuestions() {
         <div class="form-group">
           <label>Question Paper PDF</label>
           <input type="file" id="ingest-qp-file" accept=".pdf" class="form-input">
+          <label class="mt-2" style="font-size:0.8rem;font-weight:600;">Or URL:</label>
+          <input type="text" id="ingest-qp-url" class="form-input mt-1" placeholder="https://...">
         </div>
         <div class="form-group">
           <label>Answer Key PDF</label>
           <input type="file" id="ingest-ak-file" accept=".pdf" class="form-input">
+          <label class="mt-2" style="font-size:0.8rem;font-weight:600;">Or URL:</label>
+          <input type="text" id="ingest-ak-url" class="form-input mt-1" placeholder="https://...">
         </div>
       </div>
       
@@ -1801,10 +1714,12 @@ function switchQuestionTab(tab) {
 async function ingestMasterPdfs() {
   const shiftId = +document.getElementById('ingest-shift-id').value;
   const qpFile = document.getElementById('ingest-qp-file').files[0];
+  const qpUrl = document.getElementById('ingest-qp-url').value.trim();
   const akFile = document.getElementById('ingest-ak-file').files[0];
+  const akUrl = document.getElementById('ingest-ak-url').value.trim();
 
-  if (!shiftId || !qpFile || !akFile) {
-    toast('Shift ID and both PDF files are required', 'error');
+  if (!shiftId || (!(qpFile || qpUrl) || !(akFile || akUrl))) {
+    toast('Shift ID and both PDF sources are required', 'error');
     return;
   }
 
@@ -1814,8 +1729,10 @@ async function ingestMasterPdfs() {
 
   try {
     const formData = new FormData();
-    formData.append('questionPaper', qpFile);
-    formData.append('answerKey', akFile);
+    if (qpFile) formData.append('questionPaper', qpFile);
+    if (qpUrl) formData.append('questionPaperUrl', qpUrl);
+    if (akFile) formData.append('answerKey', akFile);
+    if (akUrl) formData.append('answerKeyUrl', akUrl);
 
     await api('POST', `/api/shifts/${shiftId}/ingest`, formData, true);
     toast('Shift seeded successfully from PDFs!', 'success');
