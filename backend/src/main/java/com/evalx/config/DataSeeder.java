@@ -1,135 +1,83 @@
 package com.evalx.config;
 
-import com.evalx.constants.ExamConstants;
-import com.evalx.dto.request.*;
-import com.evalx.service.*;
-import com.evalx.util.HashUtil;
+import com.evalx.entity.*;
+import com.evalx.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
-import org.springframework.stereotype.Component;
-
-import java.util.ArrayList;
-import java.util.List;
+import org.springframework.context.annotation.Configuration;
 
 @Slf4j
-@Component
+@Configuration
 @RequiredArgsConstructor
 public class DataSeeder implements CommandLineRunner {
 
-        private final ExamManagementService examManagementService;
-        private final SectionService sectionService;
-        private final MarkingPolicyService markingPolicyService;
-        private final QuestionService questionService;
+    private final ExamRepository examRepository;
+    private final ExamStageRepository examStageRepository;
+    private final ExamYearRepository examYearRepository;
+    private final MarkingPolicyRepository markingPolicyRepository;
+    private final QuestionTypePolicyRepository questionTypePolicyRepository;
 
-        @Override
-        public void run(String... args) {
-                // Skip seeding if data already exists
-                if (!examManagementService.getAllExams().isEmpty()) {
-                        log.info("Data already exists, skipping seed.");
-                        return;
-                }
-                log.info("Seeding SSC CGL exam data...");
-                seedSSCCGL();
-                log.info("Seed complete.");
+    @Override
+    public void run(String... args) {
+        log.info("DATA_SEEDER: Checking if initial data seeding is required...");
+        if (examRepository.count() == 0) {
+            log.info("SEEDING_FLOW: Starting database seeding for GATE exam...");
+
+            // 1. Marking Policy
+            MarkingPolicy policy = MarkingPolicy.builder()
+                    .description("GATE Standard Marking Policy")
+                    .build();
+            policy = markingPolicyRepository.save(policy);
+            log.info("SEED_POLICY: Created MarkingPolicy ID: {}", policy.getId());
+
+            // 2. Exam
+            Exam gate = Exam.builder()
+                    .name("GATE")
+                    .code("GATE")
+                    .build();
+            gate = examRepository.save(gate);
+            log.info("SEED_EXAM: Created Exam '{}' (ID: {})", gate.getCode(), gate.getId());
+
+            // 3. Stage
+            ExamStage stage = ExamStage.builder()
+                    .exam(gate)
+                    .name("Paper 1")
+                    .description("Primary Question Paper")
+                    .build();
+            stage = examStageRepository.save(stage);
+            log.info("SEED_STAGE: Created Stage '{}' (ID: {})", stage.getName(), stage.getId());
+
+            // 4. Year
+            ExamYear year = ExamYear.builder()
+                    .stage(stage)
+                    .year(2024)
+                    .totalMarks(100.0)
+                    .timeMinutes(180)
+                    .markingPolicy(policy)
+                    .build();
+            year = examYearRepository.save(year);
+            log.info("SEED_YEAR: Created Year {} (ID: {})", year.getYear(), year.getId());
+
+            // 5. Question Type Policies
+            log.info("SEED_RULES: Populating question type marks rules...");
+            questionTypePolicyRepository.save(QuestionTypePolicy.builder()
+                    .exam(gate)
+                    .questionType("MCQ")
+                    .marks(1.0)
+                    .negativeMarks(0.33)
+                    .build());
+
+            questionTypePolicyRepository.save(QuestionTypePolicy.builder()
+                    .exam(gate)
+                    .questionType("NAT")
+                    .marks(1.0)
+                    .negativeMarks(0.0)
+                    .build());
+
+            log.info("DATA_SEEDER_COMPLETE: Seeding finished successfully.");
+        } else {
+            log.info("DATA_SEEDER_SKIP: Database already contains {} exams. Skipping seeding.", examRepository.count());
         }
-
-        private void seedSSCCGL() {
-                // Create Exam
-                var exam = examManagementService.createExam(CreateExamRequest.builder()
-                                .name("SSC CGL")
-                                .code("SSC-CGL")
-                                .description("Staff Selection Commission - Combined Graduate Level Examination")
-                                .build());
-
-                // Create Stages: Pre (Tier 1) and Mains (Tier 2)
-                var pre = examManagementService.createStage(CreateExamStageRequest.builder()
-                                .examId(exam.getId())
-                                .name("Pre (Tier 1)")
-                                .description("Preliminary Examination - Computer Based Test")
-                                .orderIndex(1)
-                                .build());
-
-                var mains = examManagementService.createStage(CreateExamStageRequest.builder()
-                                .examId(exam.getId())
-                                .name("Mains (Tier 2)")
-                                .description("Mains Examination - Computer Based Test")
-                                .orderIndex(2)
-                                .build());
-
-                // Create Year for Pre using the configured default year constant
-                var preYear = examManagementService.createExamYear(CreateExamYearRequest.builder()
-                                .examStageId(pre.getId())
-                                .year(ExamConstants.DEFAULT_YEAR)
-                                .totalCandidates(2500000L)
-                                .totalMarks(200.0)
-                                .timeMinutes(60)
-                                .build());
-
-                // Create Shift for Pre using the default shift name constant
-                var preShift = examManagementService.createShift(CreateShiftRequest.builder()
-                                .examYearId(preYear.getId())
-                                .name(ExamConstants.DEFAULT_SHIFT)
-                                .build());
-
-                // Create Sections for Pre (25 questions each)
-                String[] sectionNames = {
-                                "General Intelligence and Reasoning",
-                                "General Awareness",
-                                "Quantitative Aptitude",
-                                "English Comprehension"
-                };
-
-                Long[] sectionIds = new Long[sectionNames.length];
-                for (int i = 0; i < sectionNames.length; i++) {
-                        var section = sectionService.createSection(CreateSectionRequest.builder()
-                                        .shiftId(preShift.getId())
-                                        .name(sectionNames[i])
-                                        .totalQuestions(25)
-                                        .orderIndex(i + 1)
-                                        .build());
-                        sectionIds[i] = section.getId();
-                }
-
-                // Create exam-year-level marking policy: +2 correct, -0.5 negative, 0
-                // unattempted
-                markingPolicyService.createPolicy(CreateMarkingPolicyRequest.builder()
-                                .examYearId(preYear.getId())
-                                .correctMarks(2.0)
-                                .negativeMarks(0.5)
-                                .unattemptedMarks(ExamConstants.DEFAULT_NEGATIVE_MARK)
-                                .build());
-
-                // Create 100 mock questions (25 per section) with cycling answers A→B→C→D
-                String[] answers = { "A", "B", "C", "D" };
-                for (int s = 0; s < sectionNames.length; s++) {
-                        List<BulkQuestionRequest.QuestionItem> items = new ArrayList<>();
-                        for (int q = 1; q <= 25; q++) {
-                                long qNum = (long) (s * 25 + q);
-                                items.add(BulkQuestionRequest.QuestionItem.builder()
-                                                .questionNumber(qNum)
-                                                .questionHash(HashUtil.generateHash(String.valueOf(qNum)))
-                                                .questionText("Mock Question Text for Q" + qNum)
-                                                .questionType(ExamConstants.QUESTION_TYPE_MCQ)
-                                                .correctAnswer(answers[(s * 25 + q - 1) % 4])
-                                                .build());
-                        }
-                        questionService.bulkCreateQuestions(BulkQuestionRequest.builder()
-                                        .sectionId(sectionIds[s])
-                                        .questions(items)
-                                        .build());
-                }
-
-                // Create Mains year (empty — admin configures questions separately)
-                examManagementService.createExamYear(CreateExamYearRequest.builder()
-                                .examStageId(mains.getId())
-                                .year(ExamConstants.DEFAULT_YEAR)
-                                .totalCandidates(500000L)
-                                .totalMarks(500.0)
-                                .timeMinutes(120)
-                                .build());
-
-                log.info("SSC CGL Pre ({}) {} seeded with {} questions",
-                                ExamConstants.DEFAULT_STAGE, ExamConstants.DEFAULT_YEAR, 100);
-        }
+    }
 }
