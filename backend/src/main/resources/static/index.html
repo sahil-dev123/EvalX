@@ -14,14 +14,19 @@
 
   <!-- Navbar -->
   <nav class="navbar" id="navbar">
-    <div class="container">
-      <a href="#" class="nav-brand" onclick="navigate('home')">
+    <div class="container" style="display: flex; align-items: center; justify-content: space-between; height: 100%;">
+      <a href="#" class="nav-brand" onclick="navigate('home'); return false;">
         <div class="logo">X</div>
         <span>EvalX</span>
       </a>
-      <div class="nav-links">
-        <button onclick="navigate('home')" id="nav-home" class="active">Home</button>
-        <button onclick="navigate('admin')" id="nav-admin">Admin</button>
+      <div style="display: flex; align-items: center; gap: 20px; margin-left: auto;">
+        <div id="role-indicator" class="role-badge hidden"></div>
+        <div class="nav-links">
+          <button onclick="navigate('home')" id="nav-home" class="active">Home</button>
+          <button onclick="navigate('evaluator')" id="nav-evaluator" class="hidden">Evaluate</button>
+          <button onclick="navigate('student')" id="nav-student" class="hidden">My Results</button>
+          <button onclick="navigate('admin')" id="nav-admin">Admin</button>
+        </div>
       </div>
     </div>
   </nav>

@@ -7,6 +7,7 @@ const API = '';
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
   page: 'home',
+  userRole: localStorage.getItem('evalx_user_role') || null,
   exams: [],
   selectedExam: null,
   stages: [],
@@ -27,6 +28,12 @@ const state = {
   adminSections: [],
   adminQuestions: [],
   adminPolicies: [],
+  // Evaluator state
+  evaluatorResponses: [],
+  currentEvaluation: null,
+  // Student state
+  studentExams: [],
+  studentResults: [],
 };
 
 // ── API Client ─────────────────────────────────────────────────────────────
@@ -41,16 +48,57 @@ async function api(method, path, body, isFormData = false) {
   if (state.adminToken) {
     opts.headers['Authorization'] = `Bearer ${state.adminToken}`;
   }
-  const res = await fetch(`${API}${path}`, opts);
-  const json = await res.json();
-  if (res.status === 401 && state.adminToken && path !== '/api/auth/login') {
-    state.adminToken = null;
-    localStorage.removeItem('evalx_admin_token');
-    toast('Session expired, please login again', 'error');
-    if (state.page === 'admin') navigate('admin');
+  try {
+    const res = await fetch(`${API}${path}`, opts);
+    const json = await res.json();
+    if (res.status === 401 && state.adminToken && path !== '/api/auth/login') {
+      state.adminToken = null;
+      localStorage.removeItem('evalx_admin_token');
+      toast('Session expired, please login again', 'error');
+      if (state.page === 'admin') navigate('admin');
+    }
+    if (!res.ok || !json.success) throw new Error(json.message || 'API Error');
+    return json.data;
+  } catch (error) {
+    console.error('API Error:', error);
+    throw error;
   }
-  if (!res.ok || !json.success) throw new Error(json.message || 'API Error');
-  return json.data;
+}
+
+// ── Role Management ───────────────────────────────────────────────────────
+function setUserRole(role) {
+  state.userRole = role;
+  localStorage.setItem('evalx_user_role', role);
+  updateRoleIndicator();
+  updateNavigation();
+}
+
+function updateRoleIndicator() {
+  const roleIndicator = document.getElementById('role-indicator');
+  if (!roleIndicator) return;
+
+  const roleName = state.userRole ? state.userRole.charAt(0).toUpperCase() + state.userRole.slice(1) : null;
+  const roleIcons = { admin: '👨‍💼', evaluator: '✅', student: '📚' };
+
+  if (state.userRole && state.adminToken) {
+    roleIndicator.innerHTML = `${roleIcons[state.userRole] || ''} ${roleName}`;
+    roleIndicator.className = `role-badge role-${state.userRole}`;
+    roleIndicator.classList.remove('hidden');
+  } else {
+    roleIndicator.classList.add('hidden');
+  }
+}
+
+function updateNavigation() {
+  const navHome = document.getElementById('nav-home');
+  const navAdmin = document.getElementById('nav-admin');
+  const navEvaluator = document.getElementById('nav-evaluator');
+  const navStudent = document.getElementById('nav-student');
+
+  if (navHome) navHome.classList.add('active');
+  if (navAdmin) navAdmin.classList.toggle('hidden', state.userRole !== 'admin' || !state.adminToken);
+  if (navEvaluator) navEvaluator.classList.toggle('hidden', state.userRole !== 'evaluator' || !state.adminToken);
+  if (navStudent) navStudent.classList.toggle('hidden', state.userRole !== 'student' || !state.adminToken);
 }
 
 // ── Router ─────────────────────────────────────────────────────────────────
@@ -68,7 +116,7 @@ function navigate(page, data) {
 
   // Update nav
   document.querySelectorAll('.nav-links button').forEach(b => b.classList.remove('active'));
-  const navEl = document.getElementById(`nav-${page === 'admin' ? 'admin' : 'home'}`);
+  const navEl = document.getElementById(`nav-${page === 'admin' ? 'admin' : page === 'evaluator' ? 'evaluator' : page === 'student' ? 'student' : 'home'}`);
   if (navEl) navEl.classList.add('active');
 }
 
@@ -91,6 +139,8 @@ function render() {
     case 'upload': app.innerHTML = renderUpload(); break;
     case 'result': app.innerHTML = renderResult(); initCharts(); break;
     case 'admin': app.innerHTML = renderAdmin(); break;
+    case 'evaluator': app.innerHTML = renderEvaluator(); break;
+    case 'student': app.innerHTML = renderStudent(); break;
     default: app.innerHTML = renderHome(); loadExams();
   }
 }
@@ -196,10 +246,15 @@ async function uploadUniversalResponse() {
     const result = await api('POST', `/api/evaluation/evaluate${query}`, formData, true);
     state.result = result;
     navigate('result');
-    toast('Evaluation Complete!', 'success');
+    toast('✓ Evaluation Complete!', 'success');
   } catch (e) {
-    toast('Evaluation Failed: ' + e.message, 'error');
-    state.loading = false; render();
+    toast('✗ Evaluation Failed: ' + e.message, 'error');
+    state.loading = false;
+    if (originalBtn) {
+      originalBtn.disabled = false;
+      originalBtn.textContent = '⚡ Calculate My Score';
+    }
+    render();
   }
 }
 
@@ -629,6 +684,660 @@ function initCharts() {
   }, 100);
 }
 
+// ── Evaluator Panel ────────────────────────────────────────────────────────
+
+function renderEvaluator() {
+  if (!state.adminToken) return renderAdminLogin();
+  return `
+    <div class="main-layout">
+      <aside class="main-sidebar">
+        <div class="sidebar-section">
+          <div class="sidebar-label">📋 Queue</div>
+          <button class="sidebar-item active" onclick="switchEvaluatorView('batch')">
+            <span>📑</span> Batch Evaluation
+          </button>
+          <button class="sidebar-item" onclick="switchEvaluatorView('assigned')">
+            <span>✅</span> My Assignments
+          </button>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-label">📊 Stats</div>
+          <button class="sidebar-item" onclick="switchEvaluatorView('progress')">
+            <span>📈</span> My Progress
+          </button>
+        </div>
+        <div style="margin-top: auto; padding-top: 24px;">
+          <button class="sidebar-item" style="color: var(--danger)" onclick="evaluatorLogout()">
+            <span>🚪</span> Logout
+          </button>
+        </div>
+      </aside>
+      <main class="main-content fade-in">
+        <div class="flex justify-between items-center mb-3">
+          <h2>Batch Evaluation</h2>
+          <div class="flex gap-1">
+            <button class="btn btn-secondary btn-sm" onclick="loadBatchResponses()">🔄 Refresh</button>
+          </div>
+        </div>
+        <div id="evaluator-main">
+          ${renderBatchEvaluation()}
+        </div>
+      </main>
+    </div>`;
+}
+
+function renderBatchEvaluation() {
+  loadBatchResponses();
+  return `
+    <div class="card premium-card mb-3">
+      <div class="flex justify-between items-center" style="flex-wrap: wrap; gap: 16px;">
+        <div>
+          <h3 class="mb-1">Pending Evaluations</h3>
+          <p class="text-secondary" style="font-size:0.85rem;">Click on a response to start evaluating</p>
+        </div>
+        <div class="eval-filter">
+          <div class="eval-filter-group">
+            <label>Exam</label>
+            <select class="form-input" id="eval-filter-exam" onchange="loadBatchResponses()" style="width:180px;">
+              <option value="">All Exams</option>
+              <option value="gate">GATE</option>
+              <option value="ssc">SSC CGL</option>
+              <option value="cat">CAT</option>
+            </select>
+          </div>
+          <div class="eval-filter-group">
+            <label>Status</label>
+            <select class="form-input" id="eval-filter-status" onchange="loadBatchResponses()" style="width:140px;">
+              <option value="">All Status</option>
+              <option value="submitted">Submitted</option>
+              <option value="in-progress">In Progress</option>
+              <option value="evaluated">Evaluated</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="loadBatchResponses()" style="align-self: flex-end;">🔄 Refresh</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <table class="evaluation-table">
+        <thead>
+          <tr>
+            <th style="width: 25%;">Student Name</th>
+            <th style="width: 20%;">Exam</th>
+            <th style="width: 20%;">Submitted</th>
+            <th style="width: 15%;">Status</th>
+            <th style="width: 20%;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="eval-batch-tbody">
+          <tr><td colspan="5" style="text-align:center; padding:40px;"><div class="loading-overlay"><div class="spinner"></div></div></td></tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function switchEvaluatorView(view) {
+  document.querySelectorAll('.main-sidebar .sidebar-item').forEach(b => b.classList.remove('active'));
+  const btn = event?.target?.closest('.sidebar-item');
+  if (btn) btn.classList.add('active');
+
+  const main = document.getElementById('evaluator-main');
+  if (view === 'batch' && main) {
+    main.innerHTML = renderBatchEvaluation();
+  } else if (view === 'assigned' && main) {
+    main.innerHTML = renderAssignedResponses();
+  } else if (view === 'progress' && main) {
+    main.innerHTML = renderEvaluatorProgress();
+  }
+}
+
+function renderAssignedResponses() {
+  return `
+    <h2 class="mb-3">My Assigned Responses</h2>
+    <div class="card">
+      <table class="evaluation-table">
+        <thead>
+          <tr>
+            <th>Student Name</th>
+            <th>Exam</th>
+            <th>Assigned On</th>
+            <th>Progress</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td colspan="5" style="text-align:center; padding:40px;">
+              <div class="empty-state">
+                <div class="icon">📋</div>
+                <p>No responses assigned to you yet</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderEvaluatorProgress() {
+  return `
+    <h2 class="mb-3">Your Progress</h2>
+    <div class="grid grid-4 mb-4">
+      <div class="card stat-card accent">
+        <div class="stat-value">0</div>
+        <div class="stat-label">Completed</div>
+      </div>
+      <div class="card stat-card info">
+        <div class="stat-value">0</div>
+        <div class="stat-label">In Progress</div>
+      </div>
+      <div class="card stat-card warning">
+        <div class="stat-value">0</div>
+        <div class="stat-label">Pending</div>
+      </div>
+      <div class="card stat-card success">
+        <div class="stat-value">0%</div>
+        <div class="stat-label">Overall</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 class="mb-2">Evaluation Timeline</h3>
+      <p class="text-secondary" style="font-size:0.85rem;">No evaluations yet. Start by evaluating responses from the Batch Evaluation tab.</p>
+    </div>`;
+}
+
+function loadBatchResponses() {
+  const tbody = document.getElementById('eval-batch-tbody');
+  if (!tbody) return;
+
+  const examFilter = document.getElementById('eval-filter-exam')?.value || '';
+  const statusFilter = document.getElementById('eval-filter-status')?.value || '';
+
+  // Mock data - replace with actual API call
+  const mockResponses = [
+    { id: 1, studentName: 'Rajesh Kumar', exam: 'GATE', submitted: '2 hours ago', status: 'submitted', score: null },
+    { id: 2, studentName: 'Priya Singh', exam: 'SSC CGL', submitted: '5 hours ago', status: 'submitted', score: null },
+    { id: 3, studentName: 'Amit Patel', exam: 'CAT', submitted: '1 day ago', status: 'in-progress', score: null },
+    { id: 4, studentName: 'Neha Sharma', exam: 'GATE', submitted: '2 days ago', status: 'evaluated', score: '78/100' },
+  ];
+
+  const filtered = mockResponses.filter(r => {
+    return (!examFilter || r.exam.toLowerCase().includes(examFilter.toLowerCase())) &&
+           (!statusFilter || r.status === statusFilter);
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" style="text-align:center; padding:40px;">
+          <div class="empty-state">
+            <div class="icon">📋</div>
+            <p>No responses match the selected filters</p>
+          </div>
+        </td>
+      </tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(r => `
+    <tr>
+      <td><strong>${r.studentName}</strong></td>
+      <td>${r.exam}</td>
+      <td style="font-size:0.85rem; color:var(--text-secondary);">${r.submitted}</td>
+      <td>
+        <span class="eval-status-badge eval-status-${r.status}">
+          ${r.status === 'submitted' ? '✓ Submitted' : r.status === 'in-progress' ? '⏳ In Progress' : '✅ Evaluated'}
+        </span>
+      </td>
+      <td>
+        ${r.status === 'evaluated'
+          ? `<button class="btn btn-secondary btn-sm" onclick="viewEvaluation(${r.id})">View</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="startEvaluation(${r.id})">Evaluate</button>`}
+      </td>
+    </tr>`).join('');
+}
+
+function startEvaluation(responseId) {
+  state.currentEvaluation = {
+    id: responseId,
+    studentName: 'Rajesh Kumar',
+    exam: 'GATE',
+    currentQuestion: 1,
+    totalQuestions: 5,
+    responses: {
+      1: { studentAnswer: 'A', correctAnswer: 'A', isCorrect: true, marks: 2 },
+      2: { studentAnswer: 'C', correctAnswer: 'B', isCorrect: false, marks: 0 },
+      3: { studentAnswer: null, correctAnswer: 'D', isCorrect: false, marks: 0 },
+      4: { studentAnswer: 'B', correctAnswer: 'B', isCorrect: true, marks: 2 },
+      5: { studentAnswer: 'A', correctAnswer: 'A', isCorrect: true, marks: 2 },
+    },
+  };
+  showEvaluationModal();
+}
+
+function viewEvaluation(responseId) {
+  toast('Opening evaluation details...', 'info');
+}
+
+function showEvaluationModal() {
+  const eval = state.currentEvaluation;
+  const q = eval.currentQuestion;
+  const data = eval.responses[q];
+
+  const modalContent = `
+    <div class="eval-modal">
+      <div class="modal-header">
+        <div>
+          <h2>${eval.studentName}</h2>
+          <p class="text-secondary" style="font-size:0.85rem;">${eval.exam} Evaluation</p>
+        </div>
+        <div style="text-align:right;">
+          <div class="progress-info" style="flex-direction: column; margin: 0; padding: 0; border: none; gap: 8px;">
+            <span class="badge badge-info">Question ${q} of ${eval.totalQuestions}</span>
+            <div class="progress-bar" style="width:100px;">
+              <div class="progress-fill good" style="width:${(q/eval.totalQuestions)*100}%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="question-block">
+        <div class="question-header">
+          <span class="question-number">Q${q}. MCQ (Single Correct Answer)</span>
+          <span class="question-progress" style="color:var(--accent-light);">+${data.isCorrect ? '2' : '0'} marks</span>
+        </div>
+
+        <div class="question-text">
+          What is the time complexity of binary search in a sorted array?
+        </div>
+
+        <div class="options-group">
+          <label class="option-item ${data.studentAnswer === 'A' ? 'selected' : ''}">
+            <input type="radio" name="answer" value="A" ${data.studentAnswer === 'A' ? 'checked' : ''} disabled>
+            <span><strong>A.</strong> O(1)</span>
+            ${data.studentAnswer === 'A' ? '<span style="margin-left:auto; color:var(--text-secondary);">Student Answer</span>' : ''}
+          </label>
+          <label class="option-item ${data.correctAnswer === 'B' ? 'selected' : ''}">
+            <input type="radio" name="answer" value="B" ${data.correctAnswer === 'B' ? 'checked' : ''} disabled>
+            <span><strong>B.</strong> O(log n)</span>
+            ${data.correctAnswer === 'B' ? '<span style="margin-left:auto; color:var(--success);">Correct Answer</span>' : ''}
+          </label>
+          <label class="option-item">
+            <input type="radio" name="answer" value="C" disabled>
+            <span><strong>C.</strong> O(n)</span>
+          </label>
+          <label class="option-item">
+            <input type="radio" name="answer" value="D" disabled>
+            <span><strong>D.</strong> O(n log n)</span>
+          </label>
+        </div>
+
+        ${!data.isCorrect ? `
+          <div class="mt-2">
+            <div class="answer-display incorrect">
+              <strong style="color:var(--danger);">✗ Incorrect</strong> - Student answered: ${data.studentAnswer}
+            </div>
+          </div>
+        ` : `
+          <div class="mt-2">
+            <div class="answer-display correct">
+              <strong style="color:var(--success);">✓ Correct</strong> - Well done!
+            </div>
+          </div>
+        `}
+
+        <div style="margin-top:24px; padding-top:16px; border-top:1px solid var(--border);">
+          <h4 style="margin-bottom:8px; color:var(--text-secondary);">Evaluator Notes</h4>
+          <textarea class="form-input" id="eval-notes" placeholder="Add any notes about this question..." rows="3"></textarea>
+        </div>
+      </div>
+
+      <div class="eval-modal .progress-info">
+        <button class="btn btn-secondary" onclick="closeEvaluationModal()">Cancel</button>
+        <div style="margin-left:auto; display:flex; gap:12px;">
+          <button class="btn btn-secondary" onclick="previousQuestion()" ${q === 1 ? 'disabled' : ''}>← Previous</button>
+          <button class="btn btn-primary" onclick="nextQuestion()" ${q === eval.totalQuestions ? 'disabled' : ''}>Next →</button>
+          ${q === eval.totalQuestions ? '<button class="btn btn-success" onclick="submitEvaluation()">✓ Submit Evaluation</button>' : ''}
+        </div>
+      </div>
+    </div>`;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'eval-modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) closeEvaluationModal(); };
+  overlay.innerHTML = `<div class="modal fade-in">${modalContent}</div>`;
+  document.body.appendChild(overlay);
+}
+
+function previousQuestion() {
+  if (state.currentEvaluation.currentQuestion > 1) {
+    state.currentEvaluation.currentQuestion--;
+    closeEvaluationModal();
+    showEvaluationModal();
+  }
+}
+
+function nextQuestion() {
+  if (state.currentEvaluation.currentQuestion < state.currentEvaluation.totalQuestions) {
+    state.currentEvaluation.currentQuestion++;
+    closeEvaluationModal();
+    showEvaluationModal();
+  }
+}
+
+function submitEvaluation() {
+  const overlay = document.getElementById('eval-modal-overlay');
+  if (overlay) {
+    overlay.style.animation = 'fadeOut 0.3s forwards';
+    setTimeout(() => overlay.remove(), 300);
+  }
+  toast('Evaluation submitted successfully!', 'success');
+  state.currentEvaluation = null;
+  // Reload batch responses
+  setTimeout(() => loadBatchResponses(), 500);
+}
+
+function closeEvaluationModal() {
+  const overlay = document.getElementById('eval-modal-overlay');
+  if (overlay) {
+    overlay.style.animation = 'fadeOut 0.3s forwards';
+    setTimeout(() => overlay.remove(), 300);
+  }
+}
+
+function evaluatorLogout() {
+  state.adminToken = null;
+  state.userRole = null;
+  localStorage.removeItem('evalx_admin_token');
+  localStorage.removeItem('evalx_user_role');
+  updateRoleIndicator();
+  updateNavigation();
+  toast('Logged out', 'success');
+  navigate('home');
+}
+
+// ── Student Panel ──────────────────────────────────────────────────────────
+
+function renderStudent() {
+  return `
+    <div class="main-layout">
+      <aside class="main-sidebar">
+        <div class="sidebar-section">
+          <div class="sidebar-label">📚 My Exams</div>
+          <button class="sidebar-item active" onclick="switchStudentView('upload')">
+            <span>📤</span> Upload Response
+          </button>
+          <button class="sidebar-item" onclick="switchStudentView('results')">
+            <span>📊</span> View Results
+          </button>
+        </div>
+        <div style="margin-top: auto; padding-top: 24px;">
+          <button class="sidebar-item" style="color: var(--danger)" onclick="studentLogout()">
+            <span>🚪</span> Logout
+          </button>
+        </div>
+      </aside>
+      <main class="main-content fade-in">
+        <h2>Student Dashboard</h2>
+        <p class="text-secondary mb-3">Upload your response sheet and view your evaluation results</p>
+        <div id="student-main">
+          ${renderStudentUpload()}
+        </div>
+      </main>
+    </div>`;
+}
+
+function renderStudentUpload() {
+  return `
+    <div class="card premium-card fade-in">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="badge badge-success">Instant Evaluation</span>
+        <h3>Upload Your Response Sheet</h3>
+      </div>
+      <p class="text-secondary mb-3">Upload your completed response sheet to get instant evaluation and results</p>
+
+      <div class="upload-zone" id="student-upload-zone"
+           ondragover="event.preventDefault(); this.classList.add('dragover')"
+           ondragleave="this.classList.remove('dragover')"
+           ondrop="handleStudentDrop(event)"
+           onclick="document.getElementById('student-file-input').click()">
+        <input type="file" id="student-file-input" accept=".pdf,.csv,.json" onchange="handleStudentFile(event)">
+        <div class="icon">📄</div>
+        <h3>Drop your response sheet here</h3>
+        <p class="text-muted">Supports PDF, CSV, and JSON</p>
+        <div id="student-file-info" class="file-info hidden"></div>
+      </div>
+      <button class="btn btn-primary btn-lg mt-3 w-full justify-center" id="student-upload-btn" onclick="uploadStudentResponse()" disabled>
+        ⚡ Evaluate My Answers
+      </button>
+    </div>`;
+}
+
+let studentFile = null;
+
+function handleStudentDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('dragover');
+  studentFile = e.dataTransfer.files[0];
+  showStudentFileInfo();
+}
+
+function handleStudentFile(e) {
+  studentFile = e.target.files[0];
+  showStudentFileInfo();
+}
+
+function showStudentFileInfo() {
+  if (!studentFile) return;
+  const info = document.getElementById('student-file-info');
+  info.textContent = `✓ ${studentFile.name}`;
+  info.classList.remove('hidden');
+  document.getElementById('student-upload-btn').disabled = false;
+}
+
+async function uploadStudentResponse() {
+  if (!studentFile) return;
+  state.loading = true;
+  document.getElementById('student-upload-btn').disabled = true;
+  document.getElementById('student-upload-btn').textContent = 'Evaluating...';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', studentFile);
+    const result = await api('POST', '/api/evaluation/evaluate', formData, true);
+    state.result = result;
+    navigate('result');
+    toast('Evaluation Complete!', 'success');
+  } catch (e) {
+    toast('Evaluation Failed: ' + e.message, 'error');
+    state.loading = false;
+    document.getElementById('student-upload-btn').disabled = false;
+    document.getElementById('student-upload-btn').textContent = '⚡ Evaluate My Answers';
+  }
+}
+
+function switchStudentView(view) {
+  const main = document.getElementById('student-main');
+  if (view === 'upload' && main) {
+    main.innerHTML = renderStudentUpload();
+  } else if (view === 'results' && main) {
+    main.innerHTML = renderStudentResults();
+  }
+  document.querySelectorAll('.main-sidebar .sidebar-item').forEach(b => b.classList.remove('active'));
+  event?.target?.closest('.sidebar-item')?.classList.add('active');
+}
+
+function renderStudentResults() {
+  // Mock student results
+  const mockResults = [
+    {
+      id: 1,
+      exam: 'GATE 2024',
+      submitted: '2 hours ago',
+      status: 'evaluated',
+      score: '78/100',
+      accuracy: '78%',
+      correct: 39,
+      incorrect: 10,
+      skipped: 1
+    },
+    {
+      id: 2,
+      exam: 'SSC CGL 2024',
+      submitted: '1 day ago',
+      status: 'evaluating',
+      score: null,
+      accuracy: null,
+      correct: null,
+      incorrect: null,
+      skipped: null
+    },
+  ];
+
+  return `
+    <div class="card premium-card mb-3">
+      <h3 class="mb-1">Your Evaluation Results</h3>
+      <p class="text-secondary" style="font-size:0.85rem;">Track your submissions and view detailed evaluation results</p>
+    </div>
+    <div class="card mb-3">
+      <table class="evaluation-table">
+        <thead>
+          <tr>
+            <th>Exam</th>
+            <th>Submitted</th>
+            <th>Status</th>
+            <th>Score</th>
+            <th>Accuracy</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${mockResults.map(r => `
+            <tr>
+              <td><strong>${r.exam}</strong></td>
+              <td style="font-size:0.85rem; color:var(--text-secondary);">${r.submitted}</td>
+              <td>
+                <span class="eval-status-badge ${r.status === 'evaluated' ? 'eval-status-evaluated' : 'eval-status-pending'}">
+                  ${r.status === 'evaluated' ? '✅ Evaluated' : '⏳ Evaluating'}
+                </span>
+              </td>
+              <td>${r.score ? `<strong>${r.score}</strong>` : '—'}</td>
+              <td>${r.accuracy ? `<strong>${r.accuracy}</strong>` : '—'}</td>
+              <td>
+                ${r.status === 'evaluated'
+                  ? `<button class="btn btn-primary btn-sm" onclick="viewStudentResults(${r.id})">View Details</button>`
+                  : `<span class="text-muted" style="font-size:0.85rem;">In progress...</span>`}
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3 class="mb-2">Quick Stats</h3>
+      <div class="grid grid-3">
+        <div style="text-align:center; padding:16px;">
+          <div style="font-size:1.5rem; font-weight:800; color:var(--success);">2</div>
+          <div class="text-muted" style="font-size:0.8rem;">Total Submissions</div>
+        </div>
+        <div style="text-align:center; padding:16px;">
+          <div style="font-size:1.5rem; font-weight:800; color:var(--accent-light);">1</div>
+          <div class="text-muted" style="font-size:0.8rem;">Evaluated</div>
+        </div>
+        <div style="text-align:center; padding:16px;">
+          <div style="font-size:1.5rem; font-weight:800; color:var(--info);">78%</div>
+          <div class="text-muted" style="font-size:0.8rem;">Best Accuracy</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function viewStudentResults(resultId) {
+  // Mock detailed result
+  const result = {
+    exam: 'GATE 2024',
+    score: 78,
+    maxScore: 100,
+    correct: 39,
+    incorrect: 10,
+    skipped: 1,
+    accuracy: 78,
+    percentile: 85,
+    estimatedRank: 15000,
+    sections: [
+      { name: 'Data Structures', score: 28, maxScore: 40, accuracy: 70 },
+      { name: 'Algorithms', score: 30, maxScore: 40, accuracy: 75 },
+      { name: 'Database', score: 20, maxScore: 20, accuracy: 100 },
+    ]
+  };
+
+  const modal = `
+    <div style="max-width:700px;">
+      <div class="result-hero" style="margin: -32px -32px 32px -32px; padding: 32px 32px 24px; background: var(--bg-glass);">
+        <p class="text-secondary">${result.exam}</p>
+        <div class="score-display text-gradient" style="margin: 16px 0 8px;">${result.score} / ${result.maxScore}</div>
+        <p class="score-sub">Your Score</p>
+      </div>
+
+      <div class="grid grid-3 mb-3">
+        <div class="stat-card success" style="padding:16px; text-align:center;">
+          <div class="stat-value">${result.correct}</div>
+          <div class="stat-label">Correct</div>
+        </div>
+        <div class="stat-card danger" style="padding:16px; text-align:center;">
+          <div class="stat-value">${result.incorrect}</div>
+          <div class="stat-label">Incorrect</div>
+        </div>
+        <div class="stat-card warning" style="padding:16px; text-align:center;">
+          <div class="stat-value">${result.skipped}</div>
+          <div class="stat-label">Skipped</div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h3 class="mb-2">Performance Metrics</h3>
+        <table class="results-table" style="width:100%;">
+          <tr><td class="text-secondary">Accuracy</td><td style="font-weight:600; text-align:right;">${result.accuracy}%</td></tr>
+          <tr><td class="text-secondary">Predicted Percentile</td><td style="font-weight:600; text-align:right; color:var(--accent-light);">${result.percentile}%</td></tr>
+          <tr><td class="text-secondary">Estimated Rank</td><td style="font-weight:600; text-align:right; color:var(--accent-light);">~${result.estimatedRank.toLocaleString()}</td></tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3 class="mb-2">Section-wise Performance</h3>
+        <table class="results-table" style="width:100%;">
+          <thead><tr><th>Section</th><th>Score</th><th>Accuracy</th></tr></thead>
+          <tbody>
+            ${result.sections.map(s => `
+              <tr>
+                <td><strong>${s.name}</strong></td>
+                <td>${s.score}/${s.maxScore}</td>
+                <td>
+                  <div class="flex items-center gap-1">
+                    <span>${s.accuracy}%</span>
+                    <div class="progress-bar" style="width:60px; height:4px;">
+                      <div class="progress-fill good" style="width:${s.accuracy}%"></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  showModal(`${result.exam} - Detailed Results`, modal, () => closeModal());
+}
+
+function studentLogout() {
+  state.userRole = null;
+  localStorage.removeItem('evalx_user_role');
+  updateRoleIndicator();
+  updateNavigation();
+  toast('Logged out', 'success');
+  navigate('home');
+}
+
 // ── Admin Panel ────────────────────────────────────────────────────────────
 
 function renderAdminLogin() {
@@ -657,6 +1366,7 @@ async function adminLogin() {
     const res = await api('POST', '/api/auth/login', { username: user, password: pass });
     state.adminToken = res.token;
     localStorage.setItem('evalx_admin_token', res.token);
+    setUserRole('admin');
     toast('Login successful!', 'success');
     navigate('admin');
   } catch (e) { toast(e.message, 'error'); }
@@ -664,7 +1374,11 @@ async function adminLogin() {
 
 function adminLogout() {
   state.adminToken = null;
+  state.userRole = null;
   localStorage.removeItem('evalx_admin_token');
+  localStorage.removeItem('evalx_user_role');
+  updateRoleIndicator();
+  updateNavigation();
   toast('Logged out', 'success');
   navigate('admin');
 }
@@ -1240,8 +1954,10 @@ async function loadAdminSections() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  updateRoleIndicator();
+  updateNavigation();
   const path = window.location.pathname.substring(1);
-  const validPages = ['admin', 'upload', 'result', 'stages', 'years'];
+  const validPages = ['admin', 'upload', 'result', 'stages', 'years', 'evaluator', 'student'];
   if (validPages.includes(path)) {
     navigate(path);
   } else {
